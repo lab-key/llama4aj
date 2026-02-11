@@ -1,0 +1,191 @@
+buildscript {
+  repositories {
+    google()
+    mavenCentral()
+  }
+
+  dependencies {
+    classpath "com.android.tools.build:gradle:7.2.1"
+  }
+}
+
+apply plugin: "com.android.library"
+
+// Helper to get property - checks project.ext (set by app via beforeEvaluate), then project properties
+def getAjllamaProperty(String key, String defaultValue = null) {
+    if (project.ext.has(key)) {
+        return project.ext.get(key)
+    }
+    if (project.hasProperty(key)) {
+        return project.property(key)
+    }
+    return defaultValue
+}
+
+def ajllamaArchitectures() {
+    def value = getAjllamaProperty("ajllama.architectures")
+    logger.lifecycle("ajllama: architectures property value = '${value}'")
+    def result = value ? value.split(',') : ["arm64-v8a", "x86_64"]
+    logger.lifecycle("ajllama: architectures result = ${result}")
+    return result
+}
+
+def ajllamaVariant() {
+    def value = getAjllamaProperty("ajllama.variant")
+    logger.lifecycle("ajllama: variant = ${value ?: 'auto-detect or all'}")
+    return value
+}
+
+def ajllamaBuildFromSource() {
+    def value = getAjllamaProperty("ajllama.buildFromSource", "true")
+    logger.lifecycle("ajllama: buildFromSource = ${value}")
+    return value.toString() == "true"
+}
+
+def repoRootDir = project.projectDir.parentFile
+def htpLibSourceDir = new File(repoRootDir, "bin/arm64-v8a")
+
+// Task to sync Hexagon DSP libraries to assets
+def appProject = rootProject.allprojects.find { it.plugins.hasPlugin('com.android.application') }
+if (appProject != null) {
+  def configureHtpSyncTask = { applicationProject ->
+    def assetsRootDir = new File(applicationProject.projectDir, "src/main/assets")
+    def ggmlHexagonDir = new File(assetsRootDir, "ggml-hexagon")
+
+    def syncTask = applicationProject.tasks.register("syncAjllamaHtpAssets", Copy) {
+      group = "ajllama"
+      description = "Copies Hexagon HTP libraries into the host application's assets directory."
+
+      onlyIf {
+        if (!htpLibSourceDir.exists()) {
+          return false
+        }
+        true
+      }
+
+      doFirst {
+        if (!assetsRootDir.exists()) {
+          assetsRootDir.mkdirs()
+        }
+        if (!ggmlHexagonDir.exists()) {
+          ggmlHexagonDir.mkdirs()
+          return
+        }
+        ggmlHexagonDir.listFiles({ File dir, String name ->
+          name.startsWith("libggml-htp-") && name.endsWith(".so")
+        } as FilenameFilter)?.each { File lib ->
+          lib.delete()
+        }
+      }
+
+      into(assetsRootDir)
+      from(htpLibSourceDir) {
+        include "libggml-htp-*.so"
+        into "ggml-hexagon"
+      }
+    }
+
+    applicationProject.tasks.matching { it.name == "preBuild" }.configureEach {
+      dependsOn(syncTask)
+    }
+  }
+
+  if (appProject.state.executed) {
+    configureHtpSyncTask(appProject)
+  } else {
+    appProject.afterEvaluate {
+      configureHtpSyncTask(appProject)
+    }
+  }
+}
+
+android {
+  namespace "com.llama4aj"
+  ndkVersion "25.2.9519653"
+  compileSdkVersion 34
+
+  defaultConfig {
+    minSdkVersion 24
+    targetSdkVersion 34
+    
+    // Control which ABIs to build and package
+    ndk {
+      abiFilters (*ajllamaArchitectures())
+    }
+    
+    def homeDir = System.getProperty("user.home")
+    def hexagonSdkRoot = System.getenv('HEXAGON_SDK_ROOT') ?: "${homeDir}/.hexagon-sdk/6.4.0.2"
+    def hexagonToolsRoot = System.getenv('HEXAGON_TOOLS_ROOT') ?: "${homeDir}/.hexagon-sdk/6.4.0.2/tools/HEXAGON_Tools/19.0.04"
+    
+    def isAjllamaBuildFromSource = ajllamaBuildFromSource()
+    def ajllamaBuildFromSourceFlag = isAjllamaBuildFromSource ? "ON" : "OFF"
+
+    externalNativeBuild {
+      cmake {
+        abiFilters (*ajllamaArchitectures())
+        
+        // Determine variant to build
+        def variant = ajllamaVariant()
+        
+        if (variant == null) {
+          // Auto-detect based on task
+          def tasks = gradle.startParameter.taskNames
+          def isAppBuild = tasks.any { it.contains("examples:android-app") }
+          variant = isAppBuild ? "generic" : ""
+        }
+
+        arguments "-DAJLLAMA_BUILD_FROM_SOURCE=${ajllamaBuildFromSourceFlag}",
+                  "-DANDROID_STL=c++_shared",
+                  "-DAJLLAMA_VARIANT=${variant}",
+                  "-DHEXAGON_SDK_ROOT=${hexagonSdkRoot}",
+                  "-DHEXAGON_TOOLS_ROOT=${hexagonToolsRoot}"
+      }
+    }
+  }
+
+  externalNativeBuild {
+    cmake {
+      path = file('src/main/CMakeLists.txt')
+    }
+  }
+  
+  // When building from source, exclude prebuilt jniLibs to avoid conflicts
+  if (ajllamaBuildFromSource()) {
+    sourceSets {
+      main {
+        jniLibs.srcDirs = []
+      }
+    }
+  }
+  
+  buildTypes {
+    release {
+      minifyEnabled false
+    }
+  }
+
+  lintOptions {
+    disable "GradleCompatible"
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_1_8
+    targetCompatibility JavaVersion.VERSION_1_8
+  }
+
+  packagingOptions {
+    jniLibs {
+      excludes += ["**/libcdsprpc.so"]
+    }
+    doNotStrip project.hasProperty("android.injected.build.api") && project.properties["android.injected.build.api"].toString().contains("debug") ? "**/**/*.so" : ""
+  }
+}
+
+repositories {
+  mavenCentral()
+  google()
+}
+
+dependencies {
+  api project(':java')
+}
