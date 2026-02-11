@@ -1,0 +1,41 @@
+include ':java', ':android', ':examples:android-app'
+
+// Add this to your settings.gradle file (ONE TIME EDIT)
+// This loads app properties BEFORE any build.gradle evaluates
+
+gradle.beforeProject { project ->
+    if (project.path == ':android') {
+        // Check if the current build is for the examples:android-app project
+        def isBuildingApp = gradle.startParameter.taskNames.any { it.startsWith(':examples:android-app') }
+
+        if (isBuildingApp) {
+            // Find the app module's gradle.properties
+            def appPropsFile = new File(rootDir, 'examples/android-app/gradle.properties')
+            if (appPropsFile.exists()) {
+                def props = new Properties()
+                appPropsFile.withInputStream { props.load(it) }
+                
+                // Set them on the android project's ext
+                props.each { key, value ->
+                    project.ext.set(key.toString(), value.toString())
+                }
+                
+                println "Loaded app config for :android from ${appPropsFile}"
+            }
+        } else {
+            println "Skipping app config for :android as not building examples:android-app"
+        }
+
+        // Unconditionally load properties from android/gradle.properties for the :android project
+        def androidPropsFile = new File(rootDir, 'android/gradle.properties')
+        if (androidPropsFile.exists()) {
+            def props = new Properties()
+            androidPropsFile.withInputStream { props.load(it) }
+            props.each { key, value ->
+                project.ext.set(key.toString(), value.toString())
+            }
+            println "Loaded properties for :android from ${androidPropsFile}"
+        }
+    }
+}
+

@@ -1,0 +1,16 @@
+plugins {
+    id 'java-library'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+// This ensures the JAR is built when the module is assembled
+jar {
+    manifest {
+        attributes 'Implementation-Title': 'Llama Java Library',
+                   'Implementation-Version': '1.0'
+    }
+}
