@@ -5,7 +5,7 @@ import android.util.Log;
 
 import java.io.File;
 
-import com.llama4aj.LlamaContext;
+import com.llama4aj;
 
 public class ModelManager {
     private static final String TAG = "ModelManager";
@@ -18,7 +18,7 @@ public class ModelManager {
     private static volatile ModelManager instance;
     private final SharedPreferences preferences;
 
-    private volatile LlamaContext llamaContext;
+    private volatile llama4aj model;
     private volatile String loadedModelPath;
 
     private String currentSystemPrompt;
@@ -77,12 +77,12 @@ public class ModelManager {
         return currentTemperature;
     }
 
-    public synchronized LlamaContext getLlamaContext() {
-        return llamaContext;
+    public synchronized llama4aj getModel() {
+        return model;
     }
 
     public synchronized boolean isModelLoaded() {
-        return llamaContext != null && loadedModelPath != null;
+        return model != null && loadedModelPath != null;
     }
 
     public synchronized String getLoadedModelPath() {
@@ -102,55 +102,55 @@ public class ModelManager {
         }
 
         // If same model is already loaded, don't reload
-        if (llamaContext != null && modelPath.equals(loadedModelPath)) {
+        if (model != null && modelPath.equals(loadedModelPath)) {
             Log.d(TAG, "Model already loaded");
             return true;
         }
 
         // Unload existing model first
-        if (llamaContext != null) {
+        if (model != null) {
             Log.d(TAG, "Unloading existing model");
             try {
-                llamaContext.destroy();
+                model.close();
             } catch (Exception e) {
-                Log.w(TAG, "Error destroying previous context", e);
+                Log.w(TAG, "Error closing previous model", e);
             }
-            llamaContext = null;
+            model = null;
             loadedModelPath = null;
         }
 
         // Load new model
         try {
             Log.d(TAG, "Loading model from: " + modelPath);
-            LlamaContext newContext = LlamaContext.create(modelPath);
+            llama4aj newModel = llama4aj.load(modelPath);
 
-            if (newContext == null) {
-                Log.e(TAG, "LlamaContext.create returned null");
+            if (newModel == null) {
+                Log.e(TAG, "llama4aj.load returned null");
                 return false;
             }
 
-            llamaContext = newContext;
+            model = newModel;
             loadedModelPath = modelPath;
             Log.d(TAG, "Model loaded successfully");
             return true;
 
         } catch (Exception e) {
             Log.e(TAG, "Error loading model", e);
-            llamaContext = null;
+            model = null;
             loadedModelPath = null;
             return false;
         }
     }
 
     public synchronized void unloadModel() {
-        if (llamaContext != null) {
+        if (model != null) {
             try {
-                llamaContext.destroy();
-                Log.d(TAG, "Model unloaded");
+                model.close();
+                Log.d(TAG, "Model closed");
             } catch (Exception e) {
-                Log.e(TAG, "Error unloading model", e);
+                Log.e(TAG, "Error closing model", e);
             }
-            llamaContext = null;
+            model = null;
             loadedModelPath = null;
         }
     }

@@ -14,6 +14,9 @@
 
 #ifdef _WIN32
 #    include <sal.h>
+#    ifndef _WINDOWS
+#        define _WINDOWS
+#    endif
 #else
 #    include <semaphore.h>
 #    include <unistd.h>
@@ -21,6 +24,8 @@
 
 #pragma clang diagnostic ignored "-Wnested-anon-types"
 #pragma clang diagnostic ignored "-Wgnu-anonymous-struct"
+
+#include "htp-utils.h"
 
 #include <AEEStdErr.h>
 #include <dspqueue.h>
@@ -35,7 +40,6 @@
 #include "op-desc.h"
 #include "htp-msg.h"
 #include "htp_iface.h"
-#include "htp-drv.h"
 
 static size_t opt_ndev         = 1;
 static size_t opt_nhvx         = 0; // use all
@@ -146,9 +150,9 @@ void lm_ggml_hexagon_session::enqueue(struct htp_general_req &req, struct dspque
                              0,                       // flags - the framework will autoset this
                              n_bufs,                  // number of buffers
                              bufs,                    // buffer references
-                             sizeof(req),             // Message length
+                             sizeof(req),
                              (const uint8_t *) &req,  // Message
-                             DSPQUEUE_TIMEOUT         // Timeout
+                             1000000                  // Timeout
     );
 
     if (err != 0) {
@@ -178,13 +182,13 @@ void lm_ggml_hexagon_session::flush() {
 
         // Read response packet from queue
         int err = dspqueue_read(q, &flags,
-                                HTP_MAX_PACKET_BUFFERS,  // Maximum number of buffer references
-                                &n_bufs,                 // Number of buffer references
-                                bufs,                    // Buffer references
-                                sizeof(rsp),             // Max message length
-                                &rsp_size,               // Message length
-                                (uint8_t *) &rsp,        // Message
-                                DSPQUEUE_TIMEOUT);       // Timeout
+                                   HTP_MAX_PACKET_BUFFERS,  // Maximum number of buffer references
+                                   &n_bufs,                 // Number of buffer references
+                                   bufs,                    // Buffer references
+                                   sizeof(rsp),             // Max message length
+                                   &rsp_size,               // Message length
+                                   (uint8_t *) &rsp,
+                                   1000000);                // Timeout
 
         if (err == AEE_EEXPIRED) {
             // TODO: might need to bail out if the HTP is stuck on something
@@ -265,7 +269,13 @@ struct lm_ggml_backend_hexagon_buffer_context {
     lm_ggml_backend_hexagon_buffer_context(lm_ggml_hexagon_session * sess, size_t size, bool repack) {
         size += 4 * 1024;  // extra page for padding
 
-        this->base = (uint8_t *) rpcmem_alloc2(RPCMEM_HEAP_ID_SYSTEM, RPCMEM_DEFAULT_FLAGS | RPCMEM_HEAP_NOREG, size);
+        if (rpcmem_alloc2) {
+            this->base = (uint8_t *) rpcmem_alloc2(RPCMEM_HEAP_ID_SYSTEM, RPCMEM_DEFAULT_FLAGS | RPCMEM_HEAP_NOREG, size);
+        } else {
+            LM_GGML_LOG_INFO("ggml-hex: %s rpcmem_alloc2 not found, falling back to rpcmem_alloc\n", sess->name.c_str());
+            this->base = (uint8_t *) rpcmem_alloc(RPCMEM_HEAP_ID_SYSTEM, RPCMEM_DEFAULT_FLAGS | RPCMEM_HEAP_NOREG, size);
+        }
+
         if (!this->base) {
             LM_GGML_LOG_ERROR("ggml-hex: %s failed to allocate buffer : size %zu\n", sess->name.c_str(), size);
             throw std::runtime_error("ggml-hex: rpcmem_alloc failed (see log for details)");
@@ -2451,12 +2461,12 @@ static void lm_ggml_backend_hexagon_free(lm_ggml_backend_t backend) {
 }
 
 static inline bool op_reuse_src1(const lm_ggml_tensor * op1, const lm_ggml_tensor * op0) {
-    return (op0 && op0->src[1] == op1->src[1] && lm_ggml_is_quantized(op0->src[0]->type));
+    return (op0 && op0->src[1] == op1->src[1] && lm_ggml_is_quantized(op0->src[0]->type) && lm_ggml_is_quantized(op1->src[1]->type));
 }
 
 static inline bool is_compute_op(lm_ggml_tensor *node)
 {
-    return !lm_ggml_op_is_empty(node->op) && !lm_ggml_is_empty(node) && (node->flags & LM_GGML_TENSOR_FLAG_COMPUTE);
+    return !(lm_ggml_op_is_empty(node->op) || lm_ggml_is_empty(node));
 }
 
 // scan the graph and figure out last compute op index
@@ -2478,7 +2488,7 @@ static lm_ggml_status lm_ggml_backend_hexagon_graph_compute(lm_ggml_backend_t ba
 
     const int last = last_compute_op(graph);
 
-    const struct lm_ggml_tensor * prev_op = nullptr;  // prev executed op
+    const struct lm_ggml_tensor * prev_quant_op = nullptr;  // prev executed op with quantizer
 
     for (int i = 0; i < graph->n_nodes; ++i) {
         lm_ggml_tensor * node = graph->nodes[i];
@@ -2487,14 +2497,16 @@ static lm_ggml_status lm_ggml_backend_hexagon_graph_compute(lm_ggml_backend_t ba
             continue;
         }
 
+        if ((node->flags & LM_GGML_TENSOR_FLAG_COMPUTE) == 0) {
+            continue;
+        }
+
         uint32_t flags = 0;
 
         // skip quantizer if src1 is reused
-        if (op_reuse_src1(node, prev_op)) {
+        if (op_reuse_src1(node, prev_quant_op)) {
             flags |= HTP_OPFLAGS_SKIP_QUANTIZE;
         }
-
-        prev_op = node;
 
         // ask for early notification for the last Op
         if (i == last) {
@@ -2508,6 +2520,7 @@ static lm_ggml_status lm_ggml_backend_hexagon_graph_compute(lm_ggml_backend_t ba
                 } else {
                     lm_ggml_hexagon_dispatch_op<init_binary_req<false>>(sess, node, flags);
                 }
+                prev_quant_op = node;
                 break;
             case LM_GGML_OP_MUL_MAT_ID:
                 if (lm_ggml_is_quantized(node->src[0]->type)) {
@@ -2515,6 +2528,7 @@ static lm_ggml_status lm_ggml_backend_hexagon_graph_compute(lm_ggml_backend_t ba
                 } else {
                     lm_ggml_hexagon_dispatch_op<init_binary_id_req<false>>(sess, node, flags);
                 }
+                prev_quant_op = node;
                 break;
             case LM_GGML_OP_MUL:
             case LM_GGML_OP_ADD:
@@ -2656,7 +2670,7 @@ static std::vector<int> lm_ggml_hexagon_graph_optimize_reorder(const std::vector
         }
 
         // that many nodes forward to search for stackable nodes that can reuse VTCM
-        constexpr int N_FORWARD = 16;
+        constexpr int N_FORWARD = 8;
 
         for (int i1 = i0 + 1; i1 < i0 + N_FORWARD && i1 < n; i1++) {
             if (used[i1]) {
@@ -3042,12 +3056,10 @@ lm_ggml_hexagon_registry::lm_ggml_hexagon_registry(lm_ggml_backend_reg_t reg) {
         }
     }
 
-#if defined(__ANDROID__)
     if (opt_arch < 75) {
         opt_ndev = 1;
         LM_GGML_LOG_WARN("ggml-hex: forcing ndev to 1 for SoCs archs lower than v75.\n");
     }
-#endif
 
     LM_GGML_LOG_INFO("ggml-hex: Hexagon Arch version v%d\n", opt_arch);
 
@@ -3146,8 +3158,6 @@ static void lm_ggml_hexagon_init(lm_ggml_backend_reg * reg) {
         opt_arch = strtoul(str_arch, NULL, 0);
     }
 
-    opt_hostbuf = str_hostbuf ? atoi(str_hostbuf) : 1;
-
     reg->context = new lm_ggml_hexagon_registry(reg);
 
     HEX_VERBOSE("ggml-hex: size-of-general-req %zu size-of-general-rsp %zu\n", sizeof(struct htp_general_req),
@@ -3172,11 +3182,6 @@ lm_ggml_backend_reg_t lm_ggml_backend_hexagon_reg(void) {
         static std::mutex           mutex;
         std::lock_guard<std::mutex> lock(mutex);
         if (!initialized) {
-            auto nErr = htpdrv_init();
-            if (nErr != AEE_SUCCESS) {
-                return NULL;
-            }
-
             lm_ggml_hexagon_init(&reg);
         }
 

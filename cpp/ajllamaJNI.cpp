@@ -10,6 +10,7 @@
 #endif
 
 #include "rn-llama.h"
+#include "rn-completion.h"
 #include "nlohmann/json.hpp"
 #include "jsi/ThreadPool.h" // Added for ThreadPool initialization
 
@@ -115,7 +116,7 @@ void completion_callback_c(const char* token_data_json, void* user_data) {
 // --- Native Method Implementations ---
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_com_llama4aj_LlamaContext_nativeLoadModel(JNIEnv *env, jclass /*clazz*/, jstring model_path_j) {
+Java_com_llama4aj_nativeLoadModel(JNIEnv *env, jclass /*clazz*/, jstring model_path_j, jstring config_json_j) {
     jni_log("=== nativeLoadModel START ===");
     try {
         ThreadPool::getInstance().ensureRunning();
@@ -135,8 +136,14 @@ Java_com_llama4aj_LlamaContext_nativeLoadModel(JNIEnv *env, jclass /*clazz*/, js
         return 0;
     }
 
+    const char *config_json_c = nullptr;
+    if (config_json_j != nullptr) {
+        config_json_c = env->GetStringUTFChars(config_json_j, nullptr);
+    }
+
     jni_log("Preparing params for: %s", model_path_c);
-    // Use common_params default constructor or zero-init
+    
+    // Initialize defaults
     ::common_params params;
     params.model.path = model_path_c;
     params.n_ctx = 2048;
@@ -145,6 +152,36 @@ Java_com_llama4aj_LlamaContext_nativeLoadModel(JNIEnv *env, jclass /*clazz*/, js
     params.n_batch = 512;
     params.cpuparams.n_threads = std::thread::hardware_concurrency();
     params.cpuparams_batch.n_threads = std::thread::hardware_concurrency();
+
+    // Parse JSON config if provided
+    if (config_json_c != nullptr) {
+        try {
+            auto config = nlohmann::json::parse(config_json_c);
+            jni_log("Parsing config JSON: %s", config_json_c);
+            
+            if (config.contains("n_ctx")) params.n_ctx = config["n_ctx"].get<int>();
+            if (config.contains("n_gpu_layers")) params.n_gpu_layers = config["n_gpu_layers"].get<int>();
+            if (config.contains("n_batch")) params.n_batch = config["n_batch"].get<int>();
+            if (config.contains("use_mlock")) params.use_mlock = config["use_mlock"].get<bool>();
+            if (config.contains("use_mmap")) params.use_mmap = config["use_mmap"].get<bool>();
+            
+            if (config.contains("n_threads")) {
+                int threads = config["n_threads"].get<int>();
+                params.cpuparams.n_threads = threads;
+                params.cpuparams_batch.n_threads = threads;
+            }
+
+            if (config.contains("flash_attn")) {
+                params.flash_attn_type = config["flash_attn"].get<bool>() ? 
+                    LLAMA_FLASH_ATTN_TYPE_ENABLED : LLAMA_FLASH_ATTN_TYPE_DISABLED;
+            }
+            
+            jni_log("Params updated from JSON: n_gpu_layers=%d, n_ctx=%d", params.n_gpu_layers, params.n_ctx);
+        } catch (const std::exception& e) {
+            jni_log("WARNING: Failed to parse config JSON: %s. Using defaults.", e.what());
+        }
+        env->ReleaseStringUTFChars(config_json_j, config_json_c);
+    }
 
     rnllama::llama_rn_context* ctx = nullptr;
     try {
@@ -172,7 +209,7 @@ Java_com_llama4aj_LlamaContext_nativeLoadModel(JNIEnv *env, jclass /*clazz*/, js
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_llama4aj_LlamaContext_nativeDestroyContext(JNIEnv *env, jclass /*clazz*/, jlong context_ptr) {
+Java_com_llama4aj_nativeDestroyContext(JNIEnv *env, jclass /*clazz*/, jlong context_ptr) {
     if (context_ptr == 0) return;
     jni_log("Destroying context: %p", (void*)context_ptr);
     rnllama::llama_rn_context* ctx = reinterpret_cast<rnllama::llama_rn_context*>(context_ptr);
@@ -180,7 +217,7 @@ Java_com_llama4aj_LlamaContext_nativeDestroyContext(JNIEnv *env, jclass /*clazz*
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_llama4aj_LlamaContext_nativeCompletion(JNIEnv *env, jclass /*clazz*/, jlong context_ptr, jstring completion_params_json_j, jobject callback_obj_j) {
+Java_com_llama4aj_nativeCompletion(JNIEnv *env, jclass /*clazz*/, jlong context_ptr, jstring completion_params_json_j, jobject callback_obj_j) {
     jni_log("--- nativeCompletion START ---");
     if (context_ptr == 0) {
         jni_log("ERROR: Context pointer is null");
@@ -270,9 +307,10 @@ Java_com_llama4aj_LlamaContext_nativeCompletion(JNIEnv *env, jclass /*clazz*/, j
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_llama4aj_LlamaContext_nativeInterrupt(JNIEnv *env, jclass /*clazz*/, jlong context_ptr) {
+Java_com_llama4aj_nativeInterrupt(JNIEnv */*env*/, jclass /*clazz*/, jlong context_ptr) {
+    jni_log("nativeInterrupt, context ptr: %p", (void*)context_ptr);
     if (context_ptr == 0) return;
-    rnllama::llama_rn_context* ctx = reinterpret_cast<rnllama::llama_rn_context*>(context_ptr);
+    auto* ctx = reinterpret_cast<rnllama::llama_rn_context*>(context_ptr);
     if (ctx->completion) {
         ctx->completion->is_interrupted = true;
         jni_log("Interruption signal sent");

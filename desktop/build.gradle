@@ -72,13 +72,19 @@ def desktopUseRocm() {
     return value.toString() == "true"
 }
 
+def desktopUseMetal() {
+    def value = getDesktopProperty("ajllama.useMetal", "true") // Default ON for macOS
+    logger.lifecycle("desktop: useMetal = ${value}")
+    return value.toString() == "true"
+}
+
 java {
     sourceCompatibility = JavaVersion.VERSION_1_8
     targetCompatibility = JavaVersion.VERSION_1_8
 }
 
 dependencies {
-    // The :java module contains the LlamaContext.java class
+    // The :java module contains the core llama4aj.java class
     api project(':java')
 }
 
@@ -103,7 +109,8 @@ task configureCmake(type: Exec) {
                 '-DLM_GGML_USE_CUDA=' + (desktopUseCuda() ? 'ON' : 'OFF'),
                 '-DLM_GGML_USE_OPENCL=' + (desktopUseOpenCL() ? 'ON' : 'OFF'),
                 '-DLM_GGML_USE_VULKAN=' + (desktopUseVulkan() ? 'ON' : 'OFF'),
-                '-DLM_GGML_USE_HIP=' + (desktopUseRocm() ? 'ON' : 'OFF')
+                '-DLM_GGML_USE_HIP=' + (desktopUseRocm() ? 'ON' : 'OFF'),
+                '-DLM_GGML_USE_METAL=' + (desktopUseMetal() ? 'ON' : 'OFF')
 }
 
 // Task to build CMake project

@@ -12,8 +12,65 @@ task bootstrap {
     doLast {
         // 1. Initialize/Update Submodules
         logger.lifecycle("Initializing/Updating submodules...")
+        
+        // Ensure .gitmodules is in a sane state
+        def gitModulesFile = new File(projectDir, ".gitmodules")
+        if (!gitModulesFile.exists()) {
+             logger.lifecycle(".gitmodules not found on disk, recreating...")
+             gitModulesFile.text = ""
+             exec {
+                 commandLine "git", "add", ".gitmodules"
+             }
+        }
+
+        // Ensure llama.rn is registered and populated
+        def isSubmodulePopulated = new File(llamaRnDir, ".git").exists()
+        if (!isSubmodulePopulated) {
+             logger.lifecycle("Submodule llama.rn not populated or index inconsistent, fixing...")
+             
+             // 1. Force remove from index and config to ensure clean slate
+             exec {
+                 commandLine "git", "rm", "-rf", "--cached", "third_party/llama.rn"
+                 ignoreExitValue = true
+             }
+             
+             // 2. Add it fresh
+             exec {
+                 commandLine "git", "submodule", "add", "--force", "https://github.com/mybigday/llama.rn.git", "third_party/llama.rn"
+             }
+        }
+        
+        // Recursive update to pull nested submodules (OpenCL, llama.cpp)
         exec {
-            commandLine "git", "submodule", "update", "--init", "--recursive", "third_party/llama.rn"
+            commandLine "git", "submodule", "update", "--init", "--recursive"
+        }
+
+        // 1a. Pin Versions to Absolute Truth
+        logger.lifecycle("Pinning submodules to known compatible versions...")
+        
+        // Pin llama.rn (if it exists)
+        if (llamaRnDir.exists()) {
+            exec {
+                commandLine "git", "checkout", "8d5c42463f755768c89590a44825aa76ca7765e3"
+                workingDir llamaRnDir
+            }
+        }
+        
+        // Ensure llama.cpp exists within llama.rn before pinning
+        if (llamaRnDir.exists() && !llamaCppDir.exists()) {
+            logger.lifecycle("Nested llama.cpp not found, attempting checkout...")
+            exec {
+                commandLine "git", "submodule", "update", "--init", "--recursive"
+                workingDir llamaRnDir
+            }
+        }
+
+        // Pin llama.cpp (if it exists)
+        if (llamaCppDir.exists()) {
+            exec {
+                commandLine "git", "checkout", "0c21677e43044d27f6f7a7f9f95c67f7c4b3fdb4"
+                workingDir llamaCppDir
+            }
         }
 
         // 2. Clean cpp directory (preserve ajllamaJNI.cpp)
@@ -246,16 +303,38 @@ task bootstrap {
         copyDir(file("${llamaCppDir}/vendor/stb"), file("${cppDir}/tools/mtmd/stb"))
 
         // --- NEW BACKENDS ---
-        logger.lifecycle("Copying extra backends (CUDA, HIP, Vulkan)...")
+        logger.lifecycle("Copying extra backends (CUDA, HIP, Vulkan, RPC)...")
         copyDir(file("${llamaCppDir}/ggml/src/ggml-cuda"), file("${cppDir}/ggml-cuda"))
         copyDir(file("${llamaCppDir}/ggml/src/ggml-hip"), file("${cppDir}/ggml-hip"))
         copyDir(file("${llamaCppDir}/ggml/src/ggml-vulkan"), file("${cppDir}/ggml-vulkan"))
+        copyDir(file("${llamaCppDir}/ggml/src/ggml-rpc"), file("${cppDir}/ggml-rpc"))
+
+        // --- OpenCL Headers ---
+        logger.lifecycle("Copying OpenCL headers...")
+        copyDir(file("third_party/llama.rn/third_party/OpenCL-Headers/CL"), file("${cppDir}/OpenCL/CL"))
 
         // --- RN Custom Files ---
         logger.lifecycle("Copying RN custom files...")
         copyDir(file("${llamaRnDir}/cpp"), cppDir) // This will overwrite with rn-* files
 
-        // 4. Replacements (Prefixing)
+        // 4. Apply Patches
+        logger.lifecycle("Applying patches...")
+        // Clean up any old rejections first
+        delete fileTree(dir: cppDir, include: "**/*.rej")
+        
+        fileTree(dir: "${scriptsDir}/patches", include: "*.patch").each { File patchFile ->
+            logger.lifecycle("Applying patch: ${patchFile.name}")
+            // Apply with -p0 because headers in patches match our relative structure (e.g. common/chat.cpp)
+            exec {
+                workingDir cppDir
+                commandLine "patch", "-p0", "-i", patchFile.absolutePath
+                ignoreExitValue = true 
+            }
+            // Cleanup orig files
+            delete fileTree(dir: cppDir, include: "**/*.orig")
+        }
+
+        // 5. Replacements (Prefixing)
         logger.lifecycle("Applying symbol prefixes...")
         
         def filesToProcess = fileTree(dir: cppDir).matching {
@@ -294,19 +373,6 @@ task bootstrap {
             if (content != originalContent) {
                 f.text = content
             }
-        }
-
-        // 5. Apply Patches
-        logger.lifecycle("Applying patches...")
-        fileTree(dir: "${scriptsDir}/patches", include: "*.patch").each { File patchFile ->
-            logger.lifecycle("Applying patch: ${patchFile.name}")
-            exec {
-                workingDir cppDir
-                commandLine "patch", "-p0", "-i", patchFile.absolutePath
-                ignoreExitValue = true // Some patches might be fuzzy or fail if already applied, but in a clean build it should be fine
-            }
-            // Cleanup orig files
-            delete fileTree(dir: cppDir, include: "**/*.orig")
         }
         
         

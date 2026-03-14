@@ -27,9 +27,9 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import com.llama4aj.LlamaContext;
+import com.llama4aj;
 
-public class MainActivity extends AppCompatActivity implements LlamaContext.CompletionCallback {
+public class MainActivity extends AppCompatActivity implements llama4aj.CompletionCallback {
 
     private static final String TAG = "LlamaApp";
 
@@ -82,9 +82,9 @@ public class MainActivity extends AppCompatActivity implements LlamaContext.Comp
         stopButton.setOnClickListener(v -> {
             if (isGenerating) {
                 executorService.execute(() -> {
-                    LlamaContext context = modelManager.getLlamaContext();
-                    if (context != null) {
-                        context.interrupt();
+                    llama4aj model = modelManager.getModel();
+                    if (model != null) {
+                        model.interrupt();
                     }
                 });
             }
@@ -173,9 +173,9 @@ public class MainActivity extends AppCompatActivity implements LlamaContext.Comp
         addModelMessage("");
 
         executorService.execute(() -> {
-            LlamaContext context = modelManager.getLlamaContext();
+            llama4aj model = modelManager.getModel();
 
-            if (context == null) {
+            if (model == null) {
                 mainHandler.post(() -> {
                     updateLastModelMessage("Error: Model not loaded");
                     resetInputState();
@@ -192,9 +192,10 @@ public class MainActivity extends AppCompatActivity implements LlamaContext.Comp
                 params.put("top_k", 40);
                 params.put("top_p", 0.9);
                 params.put("repeat_penalty", 1.1);
+                params.put("stream", true);
 
                 Log.d(TAG, "Starting completion with prompt: " + fullPrompt);
-                context.completion(params.toString(), this);
+                model.completion(params.toString(), this);
 
             } catch (JSONException e) {
                 Log.e(TAG, "JSON error", e);
@@ -213,6 +214,7 @@ public class MainActivity extends AppCompatActivity implements LlamaContext.Comp
     }
 
     private String buildPrompt(String userMessage) {
+
         String systemPrompt = modelManager.getSystemPrompt();
         if (systemPrompt != null && !systemPrompt.trim().isEmpty()) {
             return systemPrompt.trim() + "\n\nUser: " + userMessage + "\n\nAssistant:";

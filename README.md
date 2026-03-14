@@ -6,6 +6,12 @@
 
 A Direct Android & Java Build For The [mybigday](https://github.com/mybigday) Serverless Server-like Chat Completion Implementation
 
+Java 11 Required
+
+Supports Android, Linux - Currently tested
+
+In theory should support Windows, BSD & macOS - Still needs to be tested!
+
 Allows For Fast Inference & Intuitive App Building - Checkout The Example Apps & Try Building Them Yourself!
 
 ## Getting Started
@@ -19,21 +25,26 @@ Allows For Fast Inference & Intuitive App Building - Checkout The Example Apps &
 ./gradlew :examples:desktop-app:run
 ```
 
+## Example
+```
+import com.llama4aj;
+```
+
 ***COMING TO MAVEN SOON***
 
 ***SCALA VERSION COMING SOON***
 
 ## TODO
 
-A lot more configuring to make sure it is alligned with upstream [llama.rn](https://github.com/mybigday/llama.rn) - things like cpu variants ( Just properly defining and doing everything what the upstream projects provide ) 
+A lot more configuring to make sure it is alligned with upstream [llama.rn](https://github.com/mybigday/llama.rn) - things like cpu variants ( Just properly defining and doing everything what the upstream projects provide - still bits TODO but getting close to 0.0.1 - alpha )
 
-Proper bootstrap system - The way this is currently setup is kinda terrible as it's a combination of my manual setup and an attempt to setup a bootstrap system. Which is already out-of-sync with upstream so I need it to be more robust. 
-
-Proper syncing system - This bootstrap system could and should be used more like a syncing system..
+Proper syncing system
 
 Cleanup...
 
 Tests
+
+Especially tests on other platforms and architectures if you have time, knowhow and want to help would be appreciated!
 
 Docs
 

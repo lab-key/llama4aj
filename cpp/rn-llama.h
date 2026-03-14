@@ -15,47 +15,12 @@
 #include "llama-impl.h"
 #include "sampling.h"
 #include "nlohmann/json.hpp"
+#include "rn-tts.h"
 #if defined(__ANDROID__)
 #include <android/log.h>
 #endif
 
 using json = nlohmann::ordered_json;
-
-namespace rnllama {
-
-// Logging functions
-void log(const char *level, const char *function, int line, const char *format, ...);
-
-// Logging macros
-extern bool rnllama_verbose;
-
-#ifndef RNLLAMA_VERBOSE
-#define RNLLAMA_VERBOSE 1
-#endif
-
-#if RNLLAMA_VERBOSE != 1
-#define LOG_VERBOSE(MSG, ...)
-#else
-#define LOG_VERBOSE(MSG, ...)                                       \
-    do                                                              \
-    {                                                               \
-        if (rnllama_verbose)                                        \
-        {                                                           \
-            log("VERBOSE", __func__, __LINE__, MSG, ##__VA_ARGS__); \
-        }                                                           \
-    } while (0)
-#endif
-
-#define LOG_ERROR(MSG, ...) log("ERROR", __func__, __LINE__, MSG, ##__VA_ARGS__)
-#define LOG_WARNING(MSG, ...) log("WARNING", __func__, __LINE__, MSG, ##__VA_ARGS__)
-#define LOG_INFO(MSG, ...) log("INFO", __func__, __LINE__, MSG, ##__VA_ARGS__)
-
-} // namespace rnllama
-
-#include "rn-completion.h"
-#include "rn-slot-manager.h"
-#include "rn-mtmd.hpp"
-#include "rn-tts.h"
 
 namespace rnllama {
 
@@ -67,7 +32,18 @@ lm_ggml_type kv_cache_type_from_str(const std::string & s);
 
 enum llama_flash_attn_type flash_attn_type_from_str(const std::string & s);
 
-// actual definitions are in included sub-context headers
+// Forward declarations - actual definitions are in rn-completion.h
+// Note: enum forward declarations not allowed in C++, using include in implementation file
+struct completion_token_output;
+struct completion_chat_output;
+struct llama_rn_context_mtmd;
+
+struct llama_rn_context_tts;
+
+struct llama_rn_context_completion;
+
+struct llama_rn_slot_manager;
+
 struct llama_rn_tokenize_result {
   std::vector<llama_token> tokens;
   bool has_media = false;
@@ -169,6 +145,29 @@ inline void llama_batch_add(llama_batch *batch, llama_token id, llama_pos pos, s
 
 // Device info functions
 std::string get_backend_devices_info();
+
+// Logging functions
+void log(const char *level, const char *function, int line, const char *format, ...);
+
+// Logging macros
+extern bool rnllama_verbose;
+
+#if RNLLAMA_VERBOSE != 1
+#define LOG_VERBOSE(MSG, ...)
+#else
+#define LOG_VERBOSE(MSG, ...)                                       \
+    do                                                              \
+    {                                                               \
+        if (rnllama_verbose)                                        \
+        {                                                           \
+            log("VERBOSE", __func__, __LINE__, MSG, ##__VA_ARGS__); \
+        }                                                           \
+    } while (0)
+#endif
+
+#define LOG_ERROR(MSG, ...) log("ERROR", __func__, __LINE__, MSG, ##__VA_ARGS__)
+#define LOG_WARNING(MSG, ...) log("WARNING", __func__, __LINE__, MSG, ##__VA_ARGS__)
+#define LOG_INFO(MSG, ...) log("INFO", __func__, __LINE__, MSG, ##__VA_ARGS__)
 
 } // namespace rnllama
 

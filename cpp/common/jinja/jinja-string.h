@@ -4,8 +4,6 @@
 #include <string>
 #include <vector>
 
-#include "utils.h"
-
 namespace jinja {
 
 // allow differentiate between user input strings and template strings
@@ -39,7 +37,6 @@ struct string {
 
     std::string str() const;
     size_t length() const;
-    void hash_update(hasher & hash) const noexcept;
     bool all_parts_are_input() const;
     bool is_uppercase() const;
     bool is_lowercase() const;

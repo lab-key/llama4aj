@@ -14,9 +14,7 @@ struct caps {
     bool supports_parallel_tool_calls = true;
     bool supports_preserve_reasoning = false; // support assistant message with reasoning_content
 
-    // one of the 2 content capabilities must be true
-    bool supports_string_content = true;
-    bool supports_typed_content = false;
+    bool requires_typed_content = false; // default: use string content
 
     // for reporting on server
     std::map<std::string, bool> to_map() const;

@@ -24,9 +24,6 @@ struct lm_ggml_compute_params {
     void * wdata;
 
     struct lm_ggml_threadpool * threadpool;
-
-    // use reference implementation
-    bool use_ref;
 };
 
 

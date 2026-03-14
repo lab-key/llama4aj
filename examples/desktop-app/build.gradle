@@ -51,6 +51,17 @@ def desktopAppUseRocm() {
     return value.toString() == "true"
 }
 
+def desktopAppSelectedLibName() {
+    def arch = desktopAppArchitectures().first()
+    if (desktopAppUseCuda()) return "ajllama_desktop_cuda"
+    if (desktopAppUseOpenCL()) return "ajllama_desktop_opencl"
+    if (desktopAppUseVulkan()) return "ajllama_desktop_vulkan"
+    if (desktopAppUseRocm()) return "ajllama_desktop_hip"
+    if (arch == "x86_64") return "ajllama_desktop_x86_64"
+    if (arch == "arm64") return "ajllama_desktop_arm64"
+    return "ajllama_desktop_cpu"
+}
+
 java {
     sourceCompatibility = JavaVersion.VERSION_1_8
     targetCompatibility = JavaVersion.VERSION_1_8
@@ -58,7 +69,10 @@ java {
 
 application {
     mainClass = 'com.example.desktopapp.Main'
-    applicationDefaultJvmArgs = [ "-Djava.library.path=${project(':desktop').buildDir}/native" ]
+    applicationDefaultJvmArgs = [ 
+        "-Djava.library.path=${project(':desktop').buildDir}/native",
+        "-Dllama4aj.variant=${desktopAppSelectedLibName()}"
+    ]
 }
 
 dependencies {
@@ -92,22 +106,7 @@ jar {
 
     // Include the specific native library based on desktop-app properties
     from("${project(':desktop').buildDir}/native") {
-        def arch = desktopAppArchitectures().first()
-        def libName = "libajllama_desktop_cpu"
-
-        if (desktopAppUseCuda()) {
-            libName = "libajllama_desktop_cuda"
-        } else if (desktopAppUseOpenCL()) {
-            libName = "libajllama_desktop_opencl"
-        } else if (desktopAppUseVulkan()) {
-            libName = "libajllama_desktop_vulkan"
-        } else if (desktopAppUseRocm()) {
-            libName = "libajllama_desktop_hip"
-        } else if (arch == "x86_64") {
-            libName = "libajllama_desktop_x86_64"
-        } else if (arch == "arm64") {
-            libName = "libajllama_desktop_arm64"
-        }
+        def libName = "lib" + desktopAppSelectedLibName()
 
         include "${libName}.so"
         include "${libName}.dylib"

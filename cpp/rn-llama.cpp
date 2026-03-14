@@ -1,5 +1,9 @@
 #include "rn-llama.h"
 #include "ggml-cpu.h"
+#include "rn-tts.h"
+#include "rn-mtmd.hpp"
+#include "rn-completion.h"
+#include "rn-slot-manager.h"
 #include "rn-common.hpp"
 
 // Include multimodal support

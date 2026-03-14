@@ -152,6 +152,20 @@ function(build_ajllama_jni jni_name arch cpu_flags) # Added arch parameter back 
         target_sources(${jni_name} PRIVATE ${GGML_CUDA_FILES})
     endif ()
 
+    # Metal backend support (macOS)
+    if (APPLE)
+        message(STATUS "Building with Metal support for ${jni_name}")
+        target_link_libraries(${jni_name} PRIVATE "-framework Foundation" "-framework Metal" "-framework MetalKit")
+        target_compile_options(${jni_name} PRIVATE -DLM_GGML_USE_METAL)
+        
+        # Add Metal source files
+        file(GLOB GGML_METAL_FILES ${CPP_DIR}/ggml-metal/*.m ${CPP_DIR}/ggml-metal/*.cpp)
+        target_sources(${jni_name} PRIVATE ${GGML_METAL_FILES})
+        
+        # Set source properties for Objective-C if needed
+        set_source_files_properties(${CPP_DIR}/ggml-metal/ggml-metal.m PROPERTIES COMPILE_FLAGS "-fno-objc-arc")
+    endif()
+
     # OpenCL backend support
     if (LM_GGML_USE_OPENCL)
         message(STATUS "Building with OpenCL support for ${jni_name}")
@@ -220,6 +234,18 @@ if (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
     should_build_variant("x86_64" BUILD_X86_64)
     if (BUILD_X86_64)
         build_ajllama_jni("ajllama_desktop_x86_64" "x86" "-march=x86-64;-mtune=generic;-msse4.2;-mpopcnt")
+    endif()
+
+    should_build_variant("avx2" BUILD_AVX2)
+    if (BUILD_AVX2)
+        # AVX2 + FMA + F16C
+        build_ajllama_jni("ajllama_desktop_avx2" "x86" "-march=x86-64-v3")
+    endif()
+
+    should_build_variant("amx" BUILD_AMX)
+    if (BUILD_AMX)
+        # AMX support (requires more recent compilers/CPUs)
+        build_ajllama_jni("ajllama_desktop_amx" "x86" "-march=x86-64-v4;-mamx-tile;-mamx-int8;-mamx-bf16")
     endif()
 endif()
 

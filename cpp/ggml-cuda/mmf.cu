@@ -2,13 +2,6 @@
 #include "mmf.cuh"
 #include "mmid.cuh"
 
-static __forceinline__ int mmf_get_rows_per_block(const int cc) {
-    if (LM_GGML_CUDA_CC_IS_CDNA(cc)) {
-        return MMF_ROWS_PER_BLOCK_CDNA;
-    } else {
-        return MMF_ROWS_PER_BLOCK;
-    }
-}
 
 void lm_ggml_cuda_mul_mat_f(lm_ggml_backend_cuda_context & ctx, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, const lm_ggml_tensor * ids, lm_ggml_tensor * dst) {
     LM_GGML_ASSERT(        src1->type == LM_GGML_TYPE_F32);
@@ -96,32 +89,28 @@ void lm_ggml_cuda_mul_mat_f(lm_ggml_backend_cuda_context & ctx, const lm_ggml_te
         ids_info_ptr = &ids_info;
     }
 
-    const int device    = lm_ggml_cuda_get_device();
-    const int cc        = lm_ggml_cuda_info().devices[device].cc;
-    const int rows_per_block = mmf_get_rows_per_block(cc);
-
     switch (src0->type) {
         case LM_GGML_TYPE_F32: {
             const float * src0_d = (const float *) src0->data;
             constexpr int vals_per_T = 1;
-            mul_mat_f_switch_rows_per_block<float>(
-                rows_per_block, src0_d, src1_d, ids_d, dst_d, ne00/vals_per_T, ne01, ncols_dst, s01/vals_per_T, stride_col_y/vals_per_T, stride_col_dst,
+            mul_mat_f_switch_cols_per_block(
+                src0_d, src1_d, ids_d, dst_d, ne00/vals_per_T, ne01, ncols_dst, s01/vals_per_T, stride_col_y/vals_per_T, stride_col_dst,
                 ids_s0, ids_s1, ne02, nchannels_y, nchannels_dst, s02/vals_per_T, stride_channel_y, stride_channel_dst,
                 ne03, ne3, s03/vals_per_T, s13, s3, ctx.stream(), ids_info_ptr);
         } break;
         case LM_GGML_TYPE_F16: {
             const half2 * src0_d = (const half2 *) src0->data;
             constexpr int vals_per_T = 2;
-            mul_mat_f_switch_rows_per_block<half2>(
-                rows_per_block, src0_d, src1_d, ids_d, dst_d, ne00/vals_per_T, ne01, ncols_dst, s01/vals_per_T, stride_col_y/vals_per_T, stride_col_dst,
+            mul_mat_f_switch_cols_per_block(
+                src0_d, src1_d, ids_d, dst_d, ne00/vals_per_T, ne01, ncols_dst, s01/vals_per_T, stride_col_y/vals_per_T, stride_col_dst,
                 ids_s0, ids_s1, ne02, nchannels_y, nchannels_dst, s02/vals_per_T, stride_channel_y, stride_channel_dst,
                 ne03, ne3, s03/vals_per_T, s13, s3, ctx.stream(), ids_info_ptr);
         } break;
         case LM_GGML_TYPE_BF16: {
             const nv_bfloat162 * src0_d = (const nv_bfloat162 *) src0->data;
             constexpr int vals_per_T = 2;
-            mul_mat_f_switch_rows_per_block<nv_bfloat162>(
-                rows_per_block, src0_d, src1_d, ids_d, dst_d, ne00/vals_per_T, ne01, ncols_dst, s01/vals_per_T, stride_col_y/vals_per_T, stride_col_dst,
+            mul_mat_f_switch_cols_per_block(
+                src0_d, src1_d, ids_d, dst_d, ne00/vals_per_T, ne01, ncols_dst, s01/vals_per_T, stride_col_y/vals_per_T, stride_col_dst,
                 ids_s0, ids_s1, ne02, nchannels_y, nchannels_dst, s02/vals_per_T, stride_channel_y, stride_channel_dst,
                 ne03, ne3, s03/vals_per_T, s13, s3, ctx.stream(), ids_info_ptr);
         } break;
@@ -151,11 +140,7 @@ bool lm_ggml_cuda_should_use_mmf(enum lm_ggml_type type, int cc, int warp_size, 
             return false;
         }
     }
-    if (src0_ne[1] % mmf_get_rows_per_block(cc) != 0) {
-        return false;
-    }
-
-    if (LM_GGML_CUDA_CC_IS_CDNA3(cc) && type == LM_GGML_TYPE_BF16) {
+    if (src0_ne[1] % MMF_ROWS_PER_BLOCK != 0) {
         return false;
     }
 
@@ -168,11 +153,6 @@ bool lm_ggml_cuda_should_use_mmf(enum lm_ggml_type type, int cc, int warp_size, 
     } else {
         if (LM_GGML_CUDA_CC_IS_RDNA3_0(cc) && src1_ncols > 8) {
             return false;
-        } else if (LM_GGML_CUDA_CC_IS_CDNA2(cc) && (type == LM_GGML_TYPE_F16 || type == LM_GGML_TYPE_BF16)) {
-            //TODO: truse CDNA2 as CDNA1, tune the perf when CDNA2 is available.
-            return false;
-        } else if (LM_GGML_CUDA_CC_IS_CDNA1(cc) && (type == LM_GGML_TYPE_F16 || type == LM_GGML_TYPE_BF16)) {
-            return false;
         } else if (src1_ncols > 16) {
             return false;
         }
@@ -180,11 +160,11 @@ bool lm_ggml_cuda_should_use_mmf(enum lm_ggml_type type, int cc, int warp_size, 
 
     switch (type) {
         case LM_GGML_TYPE_F32:
-            return ampere_mma_available(cc) || amd_mfma_available(cc);
+            return ampere_mma_available(cc);
         case LM_GGML_TYPE_F16:
-            return volta_mma_available(cc) || turing_mma_available(cc) || amd_wmma_available(cc) || amd_mfma_available(cc);
+            return volta_mma_available(cc) || turing_mma_available(cc) || amd_wmma_available(cc);
         case LM_GGML_TYPE_BF16:
-            return ampere_mma_available(cc) || amd_wmma_available(cc) || amd_mfma_available(cc);
+            return ampere_mma_available(cc) || amd_wmma_available(cc);
         default:
             return false;
     }

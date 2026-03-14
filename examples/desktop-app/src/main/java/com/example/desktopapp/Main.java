@@ -9,21 +9,21 @@ import javafx.scene.control.TextField;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 
-import com.llama4aj.LlamaContext;
+import com.llama4aj;
 import org.json.JSONObject;
 
 import java.io.File;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class Main extends Application implements LlamaContext.CompletionCallback {
+public class Main extends Application implements llama4aj.CompletionCallback {
 
     private TextArea chatArea;
     private TextField promptInput;
     private Button sendButton;
     private Button stopButton;
 
-    private LlamaContext llamaContext;
+    private llama4aj model;
     private ExecutorService executorService;
     private StringBuilder currentResponse;
     private volatile boolean isGenerating = false;
@@ -57,11 +57,11 @@ public class Main extends Application implements LlamaContext.CompletionCallback
         executorService = Executors.newSingleThreadExecutor();
         currentResponse = new StringBuilder();
 
-        // Initialize LlamaContext in a background thread
-        executorService.submit(this::initializeLlamaContext);
+        // Initialize model in a background thread
+        executorService.submit(this::initializeModel);
     }
 
-    private void initializeLlamaContext() {
+    private void initializeModel() {
         Platform.runLater(() -> chatArea.appendText("Loading model...\n"));
         File modelFile = new File(MODEL_PATH);
         if (!modelFile.exists()) {
@@ -71,8 +71,8 @@ public class Main extends Application implements LlamaContext.CompletionCallback
         }
 
         try {
-            llamaContext = LlamaContext.create(MODEL_PATH);
-            if (llamaContext != null) {
+            model = llama4aj.load(MODEL_PATH);
+            if (model != null) {
                 Platform.runLater(() -> chatArea.appendText("Model loaded successfully!\n"));
                 Platform.runLater(() -> sendButton.setDisable(false));
             } else {
@@ -99,7 +99,7 @@ public class Main extends Application implements LlamaContext.CompletionCallback
     }
 
     private void generateResponse(String userPrompt) {
-        if (llamaContext == null) {
+        if (model == null) {
             Platform.runLater(() -> chatArea.appendText("ERROR: Model not loaded.\n"));
             setGeneratingState(false);
             return;
@@ -115,10 +115,11 @@ public class Main extends Application implements LlamaContext.CompletionCallback
             params.put("top_k", 40);
             params.put("top_p", 0.9);
             params.put("repeat_penalty", 1.1);
+            params.put("stream", true);
 
             currentResponse = new StringBuilder();
             Platform.runLater(() -> chatArea.appendText("Assistant: "));
-            llamaContext.completion(params.toString(), this);
+            model.completion(params.toString(), this);
 
         } catch (Exception e) {
             Platform.runLater(() -> chatArea.appendText("ERROR during generation: " + e.getMessage() + "\n"));
@@ -157,8 +158,8 @@ public class Main extends Application implements LlamaContext.CompletionCallback
     }
 
     private void interruptGeneration() {
-        if (llamaContext != null) {
-            executorService.submit(() -> llamaContext.interrupt());
+        if (model != null) {
+            executorService.submit(() -> model.interrupt());
         }
     }
 
@@ -176,8 +177,8 @@ public class Main extends Application implements LlamaContext.CompletionCallback
         if (executorService != null && !executorService.isShutdown()) {
             executorService.shutdownNow();
         }
-        if (llamaContext != null) {
-            llamaContext.destroy();
+        if (model != null) {
+            model.close();
         }
     }
 

@@ -1,6 +1,5 @@
 #include "ggml-backend-impl.h"
 #include "ggml-backend.h"
-#include "ggml-backend-dl.h"
 #include "ggml-impl.h"
 #include <algorithm>
 #include <cstring>
@@ -70,10 +69,6 @@
 #include "ggml-rpc.h"
 #endif
 
-#ifdef LM_GGML_USE_VIRTGPU_FRONTEND
-#include "ggml-virtgpu.h"
-#endif
-
 #ifdef LM_GGML_USE_CANN
 #include "ggml-cann.h"
 #endif
@@ -99,6 +94,72 @@ static std::string path_str(const fs::path & path) {
     }
 }
 
+#ifdef _WIN32
+
+using dl_handle = std::remove_pointer_t<HMODULE>;
+
+struct dl_handle_deleter {
+    void operator()(HMODULE handle) {
+        FreeLibrary(handle);
+    }
+};
+
+static dl_handle * dl_load_library(const fs::path & path) {
+    // suppress error dialogs for missing DLLs
+    DWORD old_mode = SetErrorMode(SEM_FAILCRITICALERRORS);
+    SetErrorMode(old_mode | SEM_FAILCRITICALERRORS);
+
+    HMODULE handle = LoadLibraryW(path.wstring().c_str());
+
+    SetErrorMode(old_mode);
+
+    return handle;
+}
+
+static void * dl_get_sym(dl_handle * handle, const char * name) {
+    DWORD old_mode = SetErrorMode(SEM_FAILCRITICALERRORS);
+    SetErrorMode(old_mode | SEM_FAILCRITICALERRORS);
+
+    void * p = (void *) GetProcAddress(handle, name);
+
+    SetErrorMode(old_mode);
+
+    return p;
+}
+
+static const char * dl_error() {
+    return "";
+}
+
+#else
+
+using dl_handle = void;
+
+struct dl_handle_deleter {
+    void operator()(void * handle) {
+        dlclose(handle);
+    }
+};
+
+static void * dl_load_library(const fs::path & path) {
+    dl_handle * handle = dlopen(path.string().c_str(), RTLD_NOW | RTLD_LOCAL);
+
+    return handle;
+}
+
+static void * dl_get_sym(dl_handle * handle, const char * name) {
+    return dlsym(handle, name);
+}
+
+static const char * dl_error() {
+    const char *rslt = dlerror();
+    return rslt != nullptr ? rslt : "";
+}
+
+#endif
+
+using dl_handle_ptr = std::unique_ptr<dl_handle, dl_handle_deleter>;
+
 struct lm_ggml_backend_reg_entry {
     lm_ggml_backend_reg_t reg;
     dl_handle_ptr handle;
@@ -119,12 +180,7 @@ struct lm_ggml_backend_registry {
         register_backend(lm_ggml_backend_sycl_reg());
 #endif
 #ifdef LM_GGML_USE_VULKAN
-    // Add runtime disable check
-    if (getenv("LM_GGML_DISABLE_VULKAN") == nullptr) {
         register_backend(lm_ggml_backend_vk_reg());
-    } else {
-        LM_GGML_LOG_DEBUG("Vulkan backend disabled by LM_GGML_DISABLE_VULKAN environment variable\n");
-    }
 #endif
 #ifdef LM_GGML_USE_WEBGPU
         register_backend(lm_ggml_backend_webgpu_reg());
@@ -132,10 +188,6 @@ struct lm_ggml_backend_registry {
 #ifdef LM_GGML_USE_ZDNN
         register_backend(lm_ggml_backend_zdnn_reg());
 #endif
-#ifdef LM_GGML_USE_VIRTGPU_FRONTEND
-        register_backend(lm_ggml_backend_virtgpu_reg());
-#endif
-
 #ifdef LM_GGML_USE_OPENCL
         register_backend(lm_ggml_backend_opencl_reg());
 #endif
@@ -471,10 +523,9 @@ static lm_ggml_backend_reg_t lm_ggml_backend_load_best(const char * name, bool s
 
     int best_score = 0;
     fs::path best_path;
-    std::error_code ec;
 
     for (const auto & search_path : search_paths) {
-        if (!fs::exists(search_path, ec)) {
+        if (std::error_code ec; !fs::exists(search_path, ec)) {
             if (ec) {
                 LM_GGML_LOG_DEBUG("%s: posix_stat(%s) failure, error-message: %s\n", __func__, path_str(search_path).c_str(), ec.message().c_str());
             } else {
@@ -484,7 +535,7 @@ static lm_ggml_backend_reg_t lm_ggml_backend_load_best(const char * name, bool s
         }
         fs::directory_iterator dir_it(search_path, fs::directory_options::skip_permission_denied);
         for (const auto & entry : dir_it) {
-            if (entry.is_regular_file(ec)) {
+            if (entry.is_regular_file()) {
                 auto filename = entry.path().filename();
                 auto ext = entry.path().extension();
                 if (filename.native().find(file_prefix) == 0 && ext == file_extension) {
@@ -553,7 +604,6 @@ void lm_ggml_backend_load_all_from_path(const char * dir_path) {
     lm_ggml_backend_load_best("rpc", silent, dir_path);
     lm_ggml_backend_load_best("sycl", silent, dir_path);
     lm_ggml_backend_load_best("vulkan", silent, dir_path);
-    lm_ggml_backend_load_best("virtgpu", silent, dir_path);
     lm_ggml_backend_load_best("opencl", silent, dir_path);
     lm_ggml_backend_load_best("hexagon", silent, dir_path);
     lm_ggml_backend_load_best("musa", silent, dir_path);

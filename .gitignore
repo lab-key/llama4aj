@@ -3,6 +3,9 @@
 build/
 bin/
 
+# Large Language Model
+model.gguf
+
 # Local configuration file (sdk path, etc)
 local.properties
 

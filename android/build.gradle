@@ -100,7 +100,7 @@ if (appProject != null) {
 }
 
 android {
-  namespace "com.llama4aj"
+  namespace "llama4aj"
   ndkVersion "25.2.9519653"
   compileSdkVersion 34
 

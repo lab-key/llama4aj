@@ -63,8 +63,7 @@ static void caps_print_stats(value & v, const std::string & path) {
 
 std::map<std::string, bool> caps::to_map() const {
     return {
-        {"supports_string_content", supports_string_content},
-        {"supports_typed_content", supports_typed_content},
+        {"requires_typed_content", requires_typed_content},
         {"supports_tools", supports_tools},
         {"supports_tool_calls", supports_tool_calls},
         {"supports_parallel_tool_calls", supports_parallel_tool_calls},
@@ -90,7 +89,7 @@ caps caps_get(jinja::program & prog) {
         return v->stats.ops.find(op_name) != v->stats.ops.end();
     };
 
-    // case: typed content support
+    // case: typed content requirement
     caps_try_execute(
         prog,
         [&]() {
@@ -106,16 +105,12 @@ caps caps_get(jinja::program & prog) {
             // tools
             return json{nullptr};
         },
-        [&](bool success, value & messages, value &) {
+        [&](bool, value & messages, value &) {
             auto & content = messages->at(0)->at("content");
             caps_print_stats(content, "messages[0].content");
             if (has_op(content, "selectattr") || has_op(content, "array_access")) {
                 // accessed as an array
-                result.supports_typed_content = true;
-            }
-            if (!success) {
-                // failed to execute with content as string
-                result.supports_string_content = false;
+                result.requires_typed_content = true;
             }
         }
     );
