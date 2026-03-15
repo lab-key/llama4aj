@@ -12,7 +12,7 @@ Supports Android, Linux - Currently tested
 
 In theory should support Windows, BSD & macOS - Still needs to be tested!
 
-Allows For Fast Inference & Intuitive App Building - Checkout The Example Apps & Try Building Them Yourself!
+Allows For Fast Inference & Intuitive App Building
 
 ## Getting Started
 
