@@ -17,7 +17,12 @@ Allows For Fast Inference & Intuitive App Building
 ## Getting Started
 
 ```
-./gradlew :examples:android-app:build # You can just copy paste the .apk file to your phone and install it.
+git clone https://github.com/ForbiddenByte/llama4aj.git
+
+cd llama4aj
+
+./gradlew :examples:android-app:build
+# You can just copy paste the .apk file to your phone and install it.
 # Or installDebug If You Have adb
 #
 # Or For The More Simple Desktop App
