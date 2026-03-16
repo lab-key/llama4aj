@@ -36,9 +36,10 @@ import com.llama4aj;
 
 public class ChatExample {
     public static void main(String[] args) {
-        llama4aj.generate("model.gguf", "Hello!", System.out::print); // Expects the model to be in the same directory / folder
+        llama4aj.generate("model.gguf", "Hello!", System.out::print);
     }
 }
+// Expects the model to be in the same directory / folder
 ```
 
 Or make your own offline / local ChatGPT clone with 500 lines of code!
