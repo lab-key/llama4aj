@@ -64,8 +64,8 @@ public class llama4aj implements AutoCloseable {
     }
 
     public void generate(String prompt, Consumer<String> onToken) {
-        String paramsJson = "{\"prompt\":\"" + prompt.replace("\"", "\\\"") + "\", \"stream\": true}";
-        nativeCompletion(contextPtr, paramsJson, onToken::accept);
+        String paramsJson = "{\"prompt\":\"" + prompt.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r") + "\", \"stream\": true}";
+        nativeCompletion(contextPtr, paramsJson, (token, stop) -> onToken.accept(token));
     }
 
     // --- Lifecycle ---
@@ -98,7 +98,7 @@ public class llama4aj implements AutoCloseable {
     private static native void nativeInterrupt(long contextPtr);
 
     public interface CompletionCallback {
-        void onTokenReceived(String token);
+        void onTokenReceived(String token, boolean stop);
     }
 
     // --- Advanced API ---

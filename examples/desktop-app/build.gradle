@@ -1,11 +1,5 @@
 plugins {
     id 'application'
-    id 'org.openjfx.javafxplugin' version '0.0.13'
-}
-
-javafx {
-    version = "11"
-    modules = ['javafx.controls', 'javafx.fxml']
 }
 
 // Helper to get property - checks project.ext (set by app via beforeEvaluate), then project properties
@@ -69,7 +63,7 @@ java {
 
 application {
     mainClass = 'com.example.desktopapp.Main'
-    applicationDefaultJvmArgs = [ 
+    applicationDefaultJvmArgs = [
         "-Djava.library.path=${project(':desktop').buildDir}/native",
         "-Dllama4aj.variant=${desktopAppSelectedLibName()}"
     ]
@@ -78,6 +72,8 @@ application {
 dependencies {
     implementation project(':java')
     implementation project(':desktop')
+    implementation 'com.formdev:flatlaf:3.4'
+    implementation 'org.xerial:sqlite-jdbc:3.45.3.0'
 }
 
 // Ensure the desktop native library is built before the app jar
@@ -88,11 +84,11 @@ tasks.named('jar') {
 // Task to create a runnable JAR with dependencies
 jar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    
+
     manifest {
         attributes 'Main-Class': 'com.example.desktopapp.Main'
     }
-    
+
     from {
         configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
     } {
@@ -106,7 +102,6 @@ jar {
     // Include the specific native library based on desktop-app properties
     from("${project(':desktop').buildDir}/native") {
         def libName = "lib" + desktopAppSelectedLibName()
-
         include "${libName}.so"
         include "${libName}.dylib"
         include "${libName}.dll"
