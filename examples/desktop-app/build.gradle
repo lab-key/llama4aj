@@ -2,58 +2,11 @@ plugins {
     id 'application'
 }
 
-// Helper to get property - checks project.ext (set by app via beforeEvaluate), then project properties
-def getDesktopAppProperty(String key, String defaultValue = null) {
-    if (project.ext.has(key)) {
-        return project.ext.get(key)
-    }
-    if (project.hasProperty(key)) {
-        return project.property(key)
-    }
-    return defaultValue
-}
-
-def desktopAppArchitectures() {
-    def value = getDesktopAppProperty("ajllama.architectures")
-    logger.lifecycle("desktop-app: architectures property value = '${value}'")
-    def result = value ? value.split(',') : ["x86_64"] // Default to x86_64 for desktop
-    logger.lifecycle("desktop-app: architectures result = ${result}")
-    return result
-}
-
-def desktopAppUseCuda() {
-    def value = getDesktopAppProperty("ajllama.useCuda", "false")
-    logger.lifecycle("desktop-app: useCuda = ${value}")
-    return value.toString() == "true"
-}
-
-def desktopAppUseOpenCL() {
-    def value = getDesktopAppProperty("ajllama.useOpenCL", "false")
-    logger.lifecycle("desktop-app: useOpenCL = ${value}")
-    return value.toString() == "true"
-}
-
-def desktopAppUseVulkan() {
-    def value = getDesktopAppProperty("ajllama.useVulkan", "false")
-    logger.lifecycle("desktop-app: useVulkan = ${value}")
-    return value.toString() == "true"
-}
-
-def desktopAppUseRocm() {
-    def value = getDesktopAppProperty("ajllama.useRocm", "false")
-    logger.lifecycle("desktop-app: useRocm = ${value}")
-    return value.toString() == "true"
-}
-
-def desktopAppSelectedLibName() {
-    def arch = desktopAppArchitectures().first()
-    if (desktopAppUseCuda()) return "ajllama_desktop_cuda"
-    if (desktopAppUseOpenCL()) return "ajllama_desktop_opencl"
-    if (desktopAppUseVulkan()) return "ajllama_desktop_vulkan"
-    if (desktopAppUseRocm()) return "ajllama_desktop_hip"
-    if (arch == "x86_64") return "ajllama_desktop_x86_64"
-    if (arch == "arm64") return "ajllama_desktop_arm64"
-    return "ajllama_desktop_cpu"
+// Helper to get backend - defaults to 'cpu'
+def getBackend() {
+    def value = project.hasProperty("ajllama.backend") ? project.getProperty("ajllama.backend") : "cpu"
+    logger.lifecycle("desktop-app: backend = '${value}'")
+    return value
 }
 
 java {
@@ -65,7 +18,7 @@ application {
     mainClass = 'com.example.desktopapp.Main'
     applicationDefaultJvmArgs = [
         "-Djava.library.path=${project(':desktop').buildDir}/native",
-        "-Dllama4aj.variant=${desktopAppSelectedLibName()}"
+        "-Dllama4aj.variant=ajllama_desktop_${getBackend()}"
     ]
 }
 
@@ -99,12 +52,12 @@ jar {
         exclude 'module-info.class'
     }
 
-    // Include the specific native library based on desktop-app properties
+    // Include the specific native library based on backend
     from("${project(':desktop').buildDir}/native") {
-        def libName = "lib" + desktopAppSelectedLibName()
-        include "${libName}.so"
-        include "${libName}.dylib"
-        include "${libName}.dll"
+        def backend = getBackend()
+        include "libajllama_desktop_${backend}.so" // Linux
+        include "libajllama_desktop_${backend}.dylib" // macOS
+        include "ajllama_desktop_${backend}.dll" // Windows
         into "libs/"
     }
 }

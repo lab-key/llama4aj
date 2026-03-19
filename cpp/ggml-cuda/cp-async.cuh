@@ -3,11 +3,11 @@
 #include "common.cuh"
 
 
-static __device__ __forceinline__ unsigned int ggml_cuda_cvta_generic_to_shared(void * generic_ptr) {
+static __device__ __forceinline__ unsigned int lm_ggml_cuda_cvta_generic_to_shared(void * generic_ptr) {
 #ifdef CP_ASYNC_AVAILABLE
     return __cvta_generic_to_shared(generic_ptr);
 #else
-    GGML_UNUSED(generic_ptr);
+    LM_GGML_UNUSED(generic_ptr);
     NO_DEVICE_CODE;
     return 0;
 #endif // CP_ASYNC_AVAILABLE
@@ -39,8 +39,8 @@ static __device__ __forceinline__ void cp_async_cg_16(const unsigned int dst, co
             : : "r"(dst), "l"(src));
     }
 #else
-    GGML_UNUSED(dst);
-    GGML_UNUSED(src);
+    LM_GGML_UNUSED(dst);
+    LM_GGML_UNUSED(src);
     NO_DEVICE_CODE;
 #endif // CP_ASYNC_AVAILABLE
 }

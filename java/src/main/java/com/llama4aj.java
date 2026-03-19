@@ -141,7 +141,7 @@ public class llama4aj implements AutoCloseable {
                     loadedLib = forcedVariant;
                     loadedDesktop = true;
                 } catch (UnsatisfiedLinkError e) {
-                    System.err.println("llama4aj: Failed to load forced variant '" + forcedVariant + "'");
+                    System.err.println("llama4aj: Failed to load forced variant '" + forcedVariant + "': " + e.getMessage());
                 }
             }
 

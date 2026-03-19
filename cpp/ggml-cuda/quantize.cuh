@@ -13,23 +13,23 @@ static_assert(MATRIX_ROW_PADDING % (4*CUDA_QUANTIZE_BLOCK_SIZE_MMQ) == 0, "Risk 
 
 typedef void (*quantize_cuda_t)(
         const float * x, const int32_t * ids, void * vy,
-        ggml_type type_src0, int64_t ne00, int64_t s01, int64_t s02, int64_t s03,
+        lm_ggml_type type_src0, int64_t ne00, int64_t s01, int64_t s02, int64_t s03,
         int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3, cudaStream_t stream);
 
 void quantize_row_q8_1_cuda(
         const float * x, const int32_t * ids, void * vy,
-        ggml_type type_src0, int64_t ne00, int64_t s01, int64_t s02, int64_t s03,
+        lm_ggml_type type_src0, int64_t ne00, int64_t s01, int64_t s02, int64_t s03,
         int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3, cudaStream_t stream);
 
 void quantize_mmq_q8_1_cuda(
         const float * x, const int32_t * ids, void * vy,
-        ggml_type type_src0, int64_t ne00, int64_t s01, int64_t s02, int64_t s03,
+        lm_ggml_type type_src0, int64_t ne00, int64_t s01, int64_t s02, int64_t s03,
         int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3, cudaStream_t stream);
 
 void quantize_mmq_mxfp4_cuda(const float *   x,
                              const int32_t * ids,
                              void *          vy,
-                             ggml_type       type_src0,
+                             lm_ggml_type       type_src0,
                              int64_t         ne00,
                              int64_t         s01,
                              int64_t         s02,

@@ -124,10 +124,9 @@ function(build_ajllama_jni jni_name arch cpu_flags) # Added arch parameter back 
         -DLM_GGML_USE_CPU
         -pthread
         -ffast-math
-        -flto
-        -D_GNU_SOURCE # Keep for Linux compatibility, can be conditional for Windows/macOS if needed
+        -D_GNU_SOURCE
         ${cpu_flags}
-        $<$<STREQUAL:"${arch}","x86">:-DLM_GGML_CPU_HAS_AVX> # Add AVX support for x86
+        $<$<STREQUAL:"${arch}","x86">:-DLM_GGML_CPU_HAS_AVX>
         )
         
         target_compile_options(${jni_name} PRIVATE -O3 -DNDEBUG)
@@ -139,17 +138,22 @@ function(build_ajllama_jni jni_name arch cpu_flags) # Added arch parameter back 
     target_compile_options(${jni_name} PRIVATE -ffunction-sections -fdata-sections)
 
     target_link_options(${jni_name} PRIVATE -Wl,--gc-sections)
-    target_link_options(${jni_name} PRIVATE -flto)
 
     # CUDA backend support
     if (LM_GGML_USE_CUDA)
         message(STATUS "Building with CUDA support for ${jni_name}")
-        target_link_libraries(${jni_name} PRIVATE CUDA::cudart)
+        target_link_libraries(${jni_name} PRIVATE CUDA::cudart CUDA::cuda_driver)
         target_compile_options(${jni_name} PRIVATE -DLM_GGML_USE_CUDA)
+        target_include_directories(${jni_name} PRIVATE ${CPP_DIR}/ggml-cuda)
+
+        # Enable extended lambda support for NVCC
+        target_compile_options(${jni_name} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda>)
+
         # Add CUDA source files
         file(GLOB GGML_CUDA_FILES ${CPP_DIR}/ggml-cuda/*.cu ${CPP_DIR}/ggml-cuda/*.cpp)
         target_sources(${jni_name} PRIVATE ${GGML_CUDA_FILES})
     endif ()
+
 
     # Metal backend support (macOS)
     if (APPLE AND LM_GGML_USE_METAL)
@@ -266,7 +270,7 @@ endif()
 if (LM_GGML_USE_CUDA)
     should_build_variant("cuda" BUILD_CUDA)
     if (BUILD_CUDA)
-        build_ajllama_jni("ajllama_desktop_cuda" "generic" "")
+        build_ajllama_jni("ajllama_desktop_cuda" "x86" "")
     endif()
 endif()
 

@@ -6,9 +6,44 @@
 
 A Direct Android & Java Build For The [mybigday](https://github.com/mybigday) Serverless Server-like Chat Completion Implementation
 
-##### Java 11 Required
+### Java 11 Required
 
-##### Supports 
+##### Supports
+
+## Platform Support
+
+| Platform | Status |
+|----------|--------|
+| Android  | ✅ Tested |
+| Linux    | ✅ Tested |
+| Windows  | ⚠️ Untested |
+| macOS    | ⚠️ Untested |
+| BSD      | ⚠️ Untested |
+
+## Backend Support
+
+Since this project is built on llama.cpp bindings, a wide range of compute backends are supported:
+
+| Backend | Target Devices | llama.cpp Support | llama4aj Tested OS |
+|---------|---------------|-------------------|--------------------|
+| Metal | Apple Silicon | ✅ | — |
+| BLAS | All | ✅ | — |
+| BLIS | All | ✅ | — |
+| SYCL | Intel and Nvidia GPU | ✅ | — |
+| MUSA | Moore Threads GPU | ✅ | — |
+| CUDA | Nvidia GPU | ✅ | Linux |
+| HIP | AMD GPU | ✅ | — |
+| ZenDNN | AMD CPU | ✅ | — |
+| Vulkan | GPU | ✅ | Android, Linux |
+| CANN | Ascend NPU | ✅ | — |
+| OpenCL | Adreno GPU | ✅ | Android |
+| IBM zDNN | IBM Z & LinuxONE | ✅ | — |
+| WebGPU | All | 🚧 In Progress | — |
+| OpenVINO | Intel CPUs, GPUs, and NPUs | 🚧 In Progress | — |
+| Hexagon | Snapdragon | 🚧 In Progress | — |
+| RPC | All | ✅ | — |
+| VirtGPU | VirtGPU | ✅ | — |
+| APIR | — | ✅ | — |
 
 Android, Linux - Currently tested
 

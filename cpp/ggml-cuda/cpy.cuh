@@ -2,6 +2,6 @@
 
 #define CUDA_CPY_BLOCK_SIZE 64
 
-void ggml_cuda_cpy(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, ggml_tensor * src1);
+void lm_ggml_cuda_cpy(lm_ggml_backend_cuda_context & ctx, const lm_ggml_tensor * src0, lm_ggml_tensor * src1);
 
-void ggml_cuda_dup(ggml_backend_cuda_context & ctx, ggml_tensor * dst);
+void lm_ggml_cuda_dup(lm_ggml_backend_cuda_context & ctx, lm_ggml_tensor * dst);

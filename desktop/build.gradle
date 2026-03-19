@@ -2,78 +2,12 @@ plugins {
     id 'java-library'
 }
 
-// Helper to get property - checks project.ext (set by app via beforeEvaluate), then project properties
-def getDesktopProperty(String key, String defaultValue = null) {
-    if (project.ext.has(key)) {
-        return project.ext.get(key)
-    }
-    if (project.hasProperty(key)) {
-        return project.property(key)
-    }
-    return defaultValue
-}
-
-def desktopArchitectures() {
-    def value = getDesktopProperty("ajllama.architectures")
-    logger.lifecycle("desktop: architectures property value = '${value}'")
-    def result = value ? value.split(',') : ["x86_64"] // Default to x86_64 for desktop
-    logger.lifecycle("desktop: architectures result = ${result}")
-    return result
-}
-
-def desktopVariant() {
-    def value = getDesktopProperty("ajllama.variant")
-    logger.lifecycle("desktop: variant (from getDesktopProperty) = '${value}'")
-    
-    if (value == null || value.trim().isEmpty()) {
-        if (desktopUseCuda()) value = "cuda"
-        else if (desktopUseOpenCL()) value = "opencl"
-        else if (desktopUseVulkan()) value = "vulkan"
-        else if (desktopUseRocm()) value = "hip"
-        else {
-            def osArch = System.getProperty("os.arch").toLowerCase()
-            if (osArch.contains("amd64") || osArch.contains("x86_64")) {
-                value = "x86_64"
-            } else if (osArch.contains("aarch64")) {
-                value = "arm64"
-            } else {
-                value = "generic"
-            }
-        }
-    }
-
-    logger.lifecycle("desktop: variant (after auto-detect) = '${value}'")
+// Helper to get backend - defaults to 'cpu', can be overridden via property or ext
+def getBackend() {
+    def value = project.hasProperty("ajllama.backend") ? project.getProperty("ajllama.backend") : 
+               (project.ext.has("ajllama.backend") ? project.ext.get("ajllama.backend") : "cpu")
+    logger.lifecycle("desktop: backend = '${value}'")
     return value
-}
-
-def desktopUseCuda() {
-    def value = getDesktopProperty("ajllama.useCuda", "false")
-    logger.lifecycle("desktop: useCuda = ${value}")
-    return value.toString() == "true"
-}
-
-def desktopUseOpenCL() {
-    def value = getDesktopProperty("ajllama.useOpenCL", "false")
-    logger.lifecycle("desktop: useOpenCL = ${value}")
-    return value.toString() == "true"
-}
-
-def desktopUseVulkan() {
-    def value = getDesktopProperty("ajllama.useVulkan", "false")
-    logger.lifecycle("desktop: useVulkan = ${value}")
-    return value.toString() == "true"
-}
-
-def desktopUseRocm() {
-    def value = getDesktopProperty("ajllama.useRocm", "false")
-    logger.lifecycle("desktop: useRocm = ${value}")
-    return value.toString() == "true"
-}
-
-def desktopUseMetal() {
-    def value = getDesktopProperty("ajllama.useMetal", "true") // Default ON for macOS
-    logger.lifecycle("desktop: useMetal = ${value}")
-    return value.toString() == "true"
 }
 
 java {
@@ -95,20 +29,22 @@ task configureCmake(type: Exec) {
         new File(workingDir.toString()).mkdirs()
     }
 
-    // Print the full commandLine for debugging
-    doLast {
-        println "CMake commandLine: " + commandLine.join(' ')
-    }
+    def backend = getBackend()
+    
+    // Determine Metal default (Only ON for macOS)
+    def osName = System.getProperty("os.name").toLowerCase()
+    def isMac = osName.contains("mac os x") || osName.contains("darwin")
+    def useMetal = (backend == "metal" || (backend == "cpu" && isMac))
 
     commandLine 'cmake',
                 "${projectDir}", // Path to desktop directory (containing CMakeLists.txt)
                 '-DCMAKE_BUILD_TYPE=Release',
-                "-DAJLLAMA_VARIANT=${desktopVariant()}",
-                '-DLM_GGML_USE_CUDA=' + (desktopUseCuda() ? 'ON' : 'OFF'),
-                '-DLM_GGML_USE_OPENCL=' + (desktopUseOpenCL() ? 'ON' : 'OFF'),
-                '-DLM_GGML_USE_VULKAN=' + (desktopUseVulkan() ? 'ON' : 'OFF'),
-                '-DLM_GGML_USE_HIP=' + (desktopUseRocm() ? 'ON' : 'OFF'),
-                '-DLM_GGML_USE_METAL=' + (desktopUseMetal() ? 'ON' : 'OFF')
+                "-DAJLLAMA_VARIANT=${backend}",
+                '-DLM_GGML_USE_CUDA=' + (backend == "cuda" ? 'ON' : 'OFF'),
+                '-DLM_GGML_USE_OPENCL=' + (backend == "opencl" ? 'ON' : 'OFF'),
+                '-DLM_GGML_USE_VULKAN=' + (backend == "vulkan" ? 'ON' : 'OFF'),
+                '-DLM_GGML_USE_HIP=' + (backend == "hip" ? 'ON' : 'OFF'),
+                '-DLM_GGML_USE_METAL=' + (useMetal ? 'ON' : 'OFF')
 }
 
 // Task to build CMake project
@@ -118,25 +54,24 @@ task buildCmake(type: Exec) {
     commandLine 'cmake', '--build', '.', '--config', 'Release'
 }
 
-// Task to clean CMake build artifacts
-task cleanCmake(type: Delete) {
-    delete file("${project.buildDir}/native")
+// Task to copy native library
+task copyNativeLib(type: Copy) {
+    dependsOn buildCmake
+    from "${project.buildDir}/native"
+    into "${project.buildDir}/native"
+    
+    def backend = getBackend()
+    include "libajllama_desktop_${backend}.so"
+    include "libajllama_desktop_${backend}.dylib"
+    include "ajllama_desktop_${backend}.dll"
+    
+    into "libs/"
 }
 
-// Task to package native libraries into a JAR
 jar {
-    dependsOn buildCmake
-    from("${project.buildDir}/native") {
-        def includePattern = desktopVariant()
-        if (includePattern != null && !includePattern.isEmpty() && includePattern != "all") {
-            include "libajllama_desktop_${includePattern}.so" // Linux
-            include "libajllama_desktop_${includePattern}.dylib" // macOS
-            include "ajllama_desktop_${includePattern}.dll" // Windows
-        } else {
-            include "libajllama_desktop_*.so" // Linux
-            include "libajllama_desktop_*.dylib" // macOS
-            include "ajllama_desktop_*.dll" // Windows
-        }
+    dependsOn copyNativeLib
+    from("${project.buildDir}/native/libs") {
+        include "*"
         into "libs/"
     }
 }

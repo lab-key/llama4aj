@@ -7,7 +7,7 @@
 #include <climits>
 #include <cstdint>
 
-using namespace ggml_cuda_mma;
+using namespace lm_ggml_cuda_mma;
 
 #define MMQ_DP4A_MAX_BATCH_SIZE 64 // Max. batch size to use for dp4a MMQ kernels when FP16 tensor cores are available.
 #define MMQ_ITER_K 256
@@ -55,40 +55,40 @@ static_assert(sizeof(block_q8_1_mmq) == 4*QK8_1 + 4*sizeof(half2), "Unexpected b
 static_assert(sizeof(block_q8_1_mmq) == 4*sizeof(block_q8_1),      "Unexpected block_q8_1_mmq size");
 static_assert(sizeof(block_fp4_mmq)  == sizeof(block_q8_1_mmq),    "Unexpected block_fp4_mmq size");
 
-static mmq_q8_1_ds_layout mmq_get_q8_1_ds_layout(const ggml_type type_x) {
+static mmq_q8_1_ds_layout mmq_get_q8_1_ds_layout(const lm_ggml_type type_x) {
     switch (type_x) {
-        case GGML_TYPE_Q4_0:
-        case GGML_TYPE_Q4_1:
+        case LM_GGML_TYPE_Q4_0:
+        case LM_GGML_TYPE_Q4_1:
             return MMQ_Q8_1_DS_LAYOUT_DS4;
-        case GGML_TYPE_Q5_0:
+        case LM_GGML_TYPE_Q5_0:
             return MMQ_Q8_1_DS_LAYOUT_D4;
-        case GGML_TYPE_Q5_1:
+        case LM_GGML_TYPE_Q5_1:
             return MMQ_Q8_1_DS_LAYOUT_DS4;
-        case GGML_TYPE_Q8_0:
+        case LM_GGML_TYPE_Q8_0:
             return MMQ_Q8_1_DS_LAYOUT_D4;
-        case GGML_TYPE_MXFP4:
+        case LM_GGML_TYPE_MXFP4:
             return MMQ_Q8_1_DS_LAYOUT_D4;
-        case GGML_TYPE_Q2_K:
+        case LM_GGML_TYPE_Q2_K:
             return MMQ_Q8_1_DS_LAYOUT_D2S6;
-        case GGML_TYPE_Q3_K:
+        case LM_GGML_TYPE_Q3_K:
             return MMQ_Q8_1_DS_LAYOUT_D4;
-        case GGML_TYPE_Q4_K:
-        case GGML_TYPE_Q5_K:
+        case LM_GGML_TYPE_Q4_K:
+        case LM_GGML_TYPE_Q5_K:
             return MMQ_Q8_1_DS_LAYOUT_DS4;
-        case GGML_TYPE_Q6_K:
-        case GGML_TYPE_IQ2_XXS:
-        case GGML_TYPE_IQ2_XS:
-        case GGML_TYPE_IQ2_S:
-        case GGML_TYPE_IQ3_XXS:
-        case GGML_TYPE_IQ3_S:
+        case LM_GGML_TYPE_Q6_K:
+        case LM_GGML_TYPE_IQ2_XXS:
+        case LM_GGML_TYPE_IQ2_XS:
+        case LM_GGML_TYPE_IQ2_S:
+        case LM_GGML_TYPE_IQ3_XXS:
+        case LM_GGML_TYPE_IQ3_S:
             return MMQ_Q8_1_DS_LAYOUT_D4;
-        case GGML_TYPE_IQ1_S:
+        case LM_GGML_TYPE_IQ1_S:
             return MMQ_Q8_1_DS_LAYOUT_DS4;
-        case GGML_TYPE_IQ4_XS:
-        case GGML_TYPE_IQ4_NL:
+        case LM_GGML_TYPE_IQ4_XS:
+        case LM_GGML_TYPE_IQ4_NL:
             return MMQ_Q8_1_DS_LAYOUT_D4;
         default:
-            GGML_ABORT("fatal error");
+            LM_GGML_ABORT("fatal error");
             break;
     }
 }
@@ -101,12 +101,12 @@ struct tile_x_sizes {
 
 static int get_mmq_x_max_host(const int cc) {
     return (amd_mfma_available(cc) || turing_mma_available(cc) || amd_wmma_available(cc)) ? 128 :
-        GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_VOLTA ?
-#ifdef GGML_CUDA_FORCE_MMQ
+        LM_GGML_CUDA_CC_IS_NVIDIA(cc) && lm_ggml_cuda_highest_compiled_arch(cc) >= LM_GGML_CUDA_CC_VOLTA ?
+#ifdef LM_GGML_CUDA_FORCE_MMQ
             128                     : 64;
 #else
             MMQ_DP4A_MAX_BATCH_SIZE : 64;
-#endif // GGML_CUDA_FORCE_MMQ
+#endif // LM_GGML_CUDA_FORCE_MMQ
 }
 
 static constexpr __device__ int get_mmq_x_max_device() {
@@ -114,51 +114,51 @@ static constexpr __device__ int get_mmq_x_max_device() {
     return 128;
 #else // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE)
 
-#if defined(GGML_USE_HIP)
+#if defined(LM_GGML_USE_HIP)
     return 64;
-#else // defined(GGML_USE_HIP)
+#else // defined(LM_GGML_USE_HIP)
 
-#if __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
-#ifdef GGML_CUDA_FORCE_MMQ
+#if __CUDA_ARCH__ >= LM_GGML_CUDA_CC_VOLTA
+#ifdef LM_GGML_CUDA_FORCE_MMQ
     return 128;
-#else // GGML_CUDA_FORCE_MMQ
+#else // LM_GGML_CUDA_FORCE_MMQ
     return MMQ_DP4A_MAX_BATCH_SIZE;
-#endif // GGML_CUDA_FORCE_MMQ
-#else // __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
+#endif // LM_GGML_CUDA_FORCE_MMQ
+#else // __CUDA_ARCH__ >= LM_GGML_CUDA_CC_VOLTA
     return 64;
-#endif // __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
+#endif // __CUDA_ARCH__ >= LM_GGML_CUDA_CC_VOLTA
 
-#endif // defined(GGML_USE_HIP)
+#endif // defined(LM_GGML_USE_HIP)
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
 }
 
 static int get_mmq_y_host(const int cc) {
-    return GGML_CUDA_CC_IS_AMD(cc) ? (GGML_CUDA_CC_IS_RDNA1(cc) ? 64 : 128) :
-        ((GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_VOLTA) ? 128 : 64);
+    return LM_GGML_CUDA_CC_IS_AMD(cc) ? (LM_GGML_CUDA_CC_IS_RDNA1(cc) ? 64 : 128) :
+        ((LM_GGML_CUDA_CC_IS_NVIDIA(cc) && lm_ggml_cuda_highest_compiled_arch(cc) >= LM_GGML_CUDA_CC_VOLTA) ? 128 : 64);
 }
 
-static constexpr __device__ int get_iter_k([[maybe_unused]] const ggml_type type) {
+static constexpr __device__ int get_iter_k([[maybe_unused]] const lm_ggml_type type) {
 #if defined(BLACKWELL_MMA_AVAILABLE)
-    return type == GGML_TYPE_MXFP4 ? MMQ_ITER_K_MXFP4_FP4 : MMQ_ITER_K;
+    return type == LM_GGML_TYPE_MXFP4 ? MMQ_ITER_K_MXFP4_FP4 : MMQ_ITER_K;
 #else
     return MMQ_ITER_K;
 #endif // defined(BLACKWELL_MMA_AVAILABLE)
 }
 
 static constexpr __device__ int get_mmq_y_device() {
-#if defined(GGML_USE_HIP)
+#if defined(LM_GGML_USE_HIP)
 #if defined(RDNA1)
     return 64;
 #else
     return 128;
 #endif // defined RDNA1
 #else
-#if __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
+#if __CUDA_ARCH__ >= LM_GGML_CUDA_CC_VOLTA
     return 128;
 #else
     return 64;
-#endif // __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
-#endif // defined(GGML_USE_HIP)
+#endif // __CUDA_ARCH__ >= LM_GGML_CUDA_CC_VOLTA
+#endif // defined(LM_GGML_USE_HIP)
 }
 
 // Decouple shared memory tile sizes from WARP_SIZE to allow for different warp sizes.
@@ -181,27 +181,27 @@ static constexpr __device__ int get_mmq_y_device() {
 #define MMQ_DP4A_TXS_Q5_K    tile_x_sizes{mmq_y*MMQ_TILE_NE_K*2 + mmq_y, mmq_y*MMQ_TILE_NE_K/QI5_K   + mmq_y/QI5_K,     mmq_y*MMQ_TILE_NE_K/8 + mmq_y/8}
 #define MMQ_DP4A_TXS_Q6_K    tile_x_sizes{mmq_y*MMQ_TILE_NE_K*2 + mmq_y, mmq_y*MMQ_TILE_NE_K/QI6_K   + mmq_y/QI6_K,     mmq_y*MMQ_TILE_NE_K/8 + mmq_y/8}
 
-static constexpr __host__ __device__ tile_x_sizes mmq_get_dp4a_tile_x_sizes(ggml_type type, int mmq_y) {
+static constexpr __host__ __device__ tile_x_sizes mmq_get_dp4a_tile_x_sizes(lm_ggml_type type, int mmq_y) {
     switch (type) {
-        case GGML_TYPE_Q4_0:    return MMQ_DP4A_TXS_Q4_0;
-        case GGML_TYPE_Q4_1:    return MMQ_DP4A_TXS_Q4_1;
-        case GGML_TYPE_Q5_0:    return MMQ_DP4A_TXS_Q8_0;
-        case GGML_TYPE_Q5_1:    return MMQ_DP4A_TXS_Q8_1;
-        case GGML_TYPE_Q8_0:    return MMQ_DP4A_TXS_Q8_0;
-        case GGML_TYPE_MXFP4:   return MMQ_DP4A_TXS_Q8_1;
-        case GGML_TYPE_Q2_K:    return MMQ_DP4A_TXS_Q2_K;
-        case GGML_TYPE_Q3_K:    return MMQ_DP4A_TXS_Q3_K;
-        case GGML_TYPE_Q4_K:    return MMQ_DP4A_TXS_Q4_K;
-        case GGML_TYPE_Q5_K:    return MMQ_DP4A_TXS_Q5_K;
-        case GGML_TYPE_Q6_K:    return MMQ_DP4A_TXS_Q6_K;
-        case GGML_TYPE_IQ2_XXS: return MMQ_DP4A_TXS_Q8_0;
-        case GGML_TYPE_IQ2_XS:  return MMQ_DP4A_TXS_Q8_0_16;
-        case GGML_TYPE_IQ2_S:   return MMQ_DP4A_TXS_Q8_0_16;
-        case GGML_TYPE_IQ3_XXS: return MMQ_DP4A_TXS_Q8_0;
-        case GGML_TYPE_IQ3_S:   return MMQ_DP4A_TXS_Q8_0;
-        case GGML_TYPE_IQ1_S:   return MMQ_DP4A_TXS_Q8_0;
-        case GGML_TYPE_IQ4_XS:  return MMQ_DP4A_TXS_Q8_0;
-        case GGML_TYPE_IQ4_NL:  return MMQ_DP4A_TXS_Q8_0;
+        case LM_GGML_TYPE_Q4_0:    return MMQ_DP4A_TXS_Q4_0;
+        case LM_GGML_TYPE_Q4_1:    return MMQ_DP4A_TXS_Q4_1;
+        case LM_GGML_TYPE_Q5_0:    return MMQ_DP4A_TXS_Q8_0;
+        case LM_GGML_TYPE_Q5_1:    return MMQ_DP4A_TXS_Q8_1;
+        case LM_GGML_TYPE_Q8_0:    return MMQ_DP4A_TXS_Q8_0;
+        case LM_GGML_TYPE_MXFP4:   return MMQ_DP4A_TXS_Q8_1;
+        case LM_GGML_TYPE_Q2_K:    return MMQ_DP4A_TXS_Q2_K;
+        case LM_GGML_TYPE_Q3_K:    return MMQ_DP4A_TXS_Q3_K;
+        case LM_GGML_TYPE_Q4_K:    return MMQ_DP4A_TXS_Q4_K;
+        case LM_GGML_TYPE_Q5_K:    return MMQ_DP4A_TXS_Q5_K;
+        case LM_GGML_TYPE_Q6_K:    return MMQ_DP4A_TXS_Q6_K;
+        case LM_GGML_TYPE_IQ2_XXS: return MMQ_DP4A_TXS_Q8_0;
+        case LM_GGML_TYPE_IQ2_XS:  return MMQ_DP4A_TXS_Q8_0_16;
+        case LM_GGML_TYPE_IQ2_S:   return MMQ_DP4A_TXS_Q8_0_16;
+        case LM_GGML_TYPE_IQ3_XXS: return MMQ_DP4A_TXS_Q8_0;
+        case LM_GGML_TYPE_IQ3_S:   return MMQ_DP4A_TXS_Q8_0;
+        case LM_GGML_TYPE_IQ1_S:   return MMQ_DP4A_TXS_Q8_0;
+        case LM_GGML_TYPE_IQ4_XS:  return MMQ_DP4A_TXS_Q8_0;
+        case LM_GGML_TYPE_IQ4_NL:  return MMQ_DP4A_TXS_Q8_0;
         default:                return tile_x_sizes{0, 0, 0};
     }
 }
@@ -221,28 +221,28 @@ static_assert(MMQ_MMA_TILE_X_K_Q6_K % 8 == 4, "Wrong padding.");
 static_assert(MMQ_MMA_TILE_X_K_FP4  % 8 == 4, "Wrong padding.");
 static_assert(MMQ_MMA_TILE_X_K_FP4 == MMQ_MMA_TILE_X_K_Q8_1, "Wrong tile size for MXFP4");
 
-static constexpr __host__ __device__ int mmq_get_mma_tile_x_k(ggml_type type) {
+static constexpr __host__ __device__ int mmq_get_mma_tile_x_k(lm_ggml_type type) {
     switch (type) {
-        case GGML_TYPE_Q4_0:    return MMQ_MMA_TILE_X_K_Q8_0;
-        case GGML_TYPE_Q4_1:    return MMQ_MMA_TILE_X_K_Q8_1;
-        case GGML_TYPE_Q5_0:    return MMQ_MMA_TILE_X_K_Q8_0;
-        case GGML_TYPE_Q5_1:    return MMQ_MMA_TILE_X_K_Q8_1;
-        case GGML_TYPE_Q8_0:    return MMQ_MMA_TILE_X_K_Q8_0;
+        case LM_GGML_TYPE_Q4_0:    return MMQ_MMA_TILE_X_K_Q8_0;
+        case LM_GGML_TYPE_Q4_1:    return MMQ_MMA_TILE_X_K_Q8_1;
+        case LM_GGML_TYPE_Q5_0:    return MMQ_MMA_TILE_X_K_Q8_0;
+        case LM_GGML_TYPE_Q5_1:    return MMQ_MMA_TILE_X_K_Q8_1;
+        case LM_GGML_TYPE_Q8_0:    return MMQ_MMA_TILE_X_K_Q8_0;
         // tile sizes are the same for Q8_1 and FP4 for blackwell
-        case GGML_TYPE_MXFP4:   return MMQ_MMA_TILE_X_K_Q8_1;
-        case GGML_TYPE_Q2_K:    return MMQ_MMA_TILE_X_K_Q2_K;
-        case GGML_TYPE_Q3_K:    return MMQ_MMA_TILE_X_K_Q3_K;
-        case GGML_TYPE_Q4_K:    return MMQ_MMA_TILE_X_K_Q8_1;
-        case GGML_TYPE_Q5_K:    return MMQ_MMA_TILE_X_K_Q8_1;
-        case GGML_TYPE_Q6_K:    return MMQ_MMA_TILE_X_K_Q6_K;
-        case GGML_TYPE_IQ2_XXS: return MMQ_MMA_TILE_X_K_Q8_0;
-        case GGML_TYPE_IQ2_XS:  return MMQ_MMA_TILE_X_K_Q3_K;
-        case GGML_TYPE_IQ2_S:   return MMQ_MMA_TILE_X_K_Q3_K;
-        case GGML_TYPE_IQ3_XXS: return MMQ_MMA_TILE_X_K_Q8_0;
-        case GGML_TYPE_IQ3_S:   return MMQ_MMA_TILE_X_K_Q8_0;
-        case GGML_TYPE_IQ1_S:   return MMQ_MMA_TILE_X_K_Q8_0;
-        case GGML_TYPE_IQ4_XS:  return MMQ_MMA_TILE_X_K_Q8_0;
-        case GGML_TYPE_IQ4_NL:  return MMQ_MMA_TILE_X_K_Q8_0;
+        case LM_GGML_TYPE_MXFP4:   return MMQ_MMA_TILE_X_K_Q8_1;
+        case LM_GGML_TYPE_Q2_K:    return MMQ_MMA_TILE_X_K_Q2_K;
+        case LM_GGML_TYPE_Q3_K:    return MMQ_MMA_TILE_X_K_Q3_K;
+        case LM_GGML_TYPE_Q4_K:    return MMQ_MMA_TILE_X_K_Q8_1;
+        case LM_GGML_TYPE_Q5_K:    return MMQ_MMA_TILE_X_K_Q8_1;
+        case LM_GGML_TYPE_Q6_K:    return MMQ_MMA_TILE_X_K_Q6_K;
+        case LM_GGML_TYPE_IQ2_XXS: return MMQ_MMA_TILE_X_K_Q8_0;
+        case LM_GGML_TYPE_IQ2_XS:  return MMQ_MMA_TILE_X_K_Q3_K;
+        case LM_GGML_TYPE_IQ2_S:   return MMQ_MMA_TILE_X_K_Q3_K;
+        case LM_GGML_TYPE_IQ3_XXS: return MMQ_MMA_TILE_X_K_Q8_0;
+        case LM_GGML_TYPE_IQ3_S:   return MMQ_MMA_TILE_X_K_Q8_0;
+        case LM_GGML_TYPE_IQ1_S:   return MMQ_MMA_TILE_X_K_Q8_0;
+        case LM_GGML_TYPE_IQ4_XS:  return MMQ_MMA_TILE_X_K_Q8_0;
+        case LM_GGML_TYPE_IQ4_NL:  return MMQ_MMA_TILE_X_K_Q8_0;
         default:                return 0;
     }
 }
@@ -275,7 +275,7 @@ static constexpr __device__ int mmq_get_granularity_device(const int /*mmq_x*/) 
 }
 #endif // AMD_MFMA_AVAILABLE
 
-#if defined(GGML_USE_HIP)
+#if defined(LM_GGML_USE_HIP)
 static int mmq_get_nwarps_host(const int cc, const int warp_size) {
     return amd_mfma_available(cc) ? 8 : 256/warp_size;
 }
@@ -283,13 +283,13 @@ static int mmq_get_nwarps_host(const int cc, const int warp_size) {
 static int mmq_get_nwarps_host(const int /*cc*/, const int warp_size) {
     return 256/warp_size;
 }
-#endif // (GGML_USE_HIP)
+#endif // (LM_GGML_USE_HIP)
 
 static constexpr __device__ int mmq_get_nwarps_device() {
 #if defined(AMD_MFMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     return 8;
 #else
-    return 256/ggml_cuda_get_physical_warp_size();
+    return 256/lm_ggml_cuda_get_physical_warp_size();
 #endif // AMD_MFMA_AVAILABLE
 }
 
@@ -298,13 +298,13 @@ static constexpr __device__ int mmq_get_nwarps_device() {
 template <int mmq_y, bool need_check> static __device__ __forceinline__ void load_tiles_q4_0(
     const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + 2*MMQ_TILE_NE_K);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_0, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_Q4_0, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
@@ -360,9 +360,9 @@ template <int mmq_x, int mmq_y>
 static __device__ __forceinline__ void vec_dot_q4_0_q8_1_dp4a(
     const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int k00) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_0, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_Q4_0, mmq_y);
     const int   * x_qs = (const int   *) x;
     const float * x_df = (const float *) x_qs + txs.qs;
     const int   * y_qs = (const int   *) y + 4;
@@ -401,13 +401,13 @@ static __device__ __forceinline__ void vec_dot_q4_0_q8_1_dp4a(
 template <int mmq_y, bool need_check> static __device__ __forceinline__ void load_tiles_q4_1(
     const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     int   * x_qs = (int   *)  x_tile;
     half2 * x_dm = (half2 *) (x_qs + 2*MMQ_TILE_NE_K);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_1, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_Q4_1, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     half2 * x_dm = (half2 *) (x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE)  || defined(AMD_WMMA_AVAILABLE)
@@ -463,9 +463,9 @@ template <int mmq_x, int mmq_y>
 static __device__ __forceinline__ void vec_dot_q4_1_q8_1_dp4a(
     const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int k00) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_1, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_Q4_1, mmq_y);
     const int   * x_qs = (const int   *) x;
     const half2 * x_dm = (const half2 *) x_qs + txs.qs;
     const int   * y_qs = (const int   *) y + 4;
@@ -504,13 +504,13 @@ static __device__ __forceinline__ void vec_dot_q4_1_q8_1_dp4a(
 template <int mmq_y, bool need_check> static __device__ __forceinline__ void load_tiles_q5_0(
     const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + MMQ_TILE_NE_K*2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q5_0, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_Q5_0, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
@@ -582,13 +582,13 @@ template <int mmq_y, bool need_check> static __device__ __forceinline__ void loa
 template <int mmq_y, bool need_check> static __device__ __forceinline__ void load_tiles_q5_1(
     const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     int   * x_qs = (int   *)  x_tile;
     half2 * x_dm = (half2 *) (x_qs + 2*MMQ_TILE_NE_K);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q5_1, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_Q5_1, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     half2 * x_dm = (half2 *) (x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
@@ -658,13 +658,13 @@ template <int mmq_y, bool need_check> static __device__ __forceinline__ void loa
 template <int mmq_y, bool need_check> static __device__ __forceinline__ void load_tiles_q8_0(
     const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_tile + 2*MMQ_TILE_NE_K);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q8_0, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_Q8_0, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
@@ -720,13 +720,13 @@ template <int mmq_y, bool need_check> static __device__ __forceinline__ void loa
 template <int mmq_y, bool need_check> static __device__ __forceinline__ void load_tiles_mxfp4(
     const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + MMQ_TILE_NE_K*2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_MXFP4, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_MXFP4, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
@@ -775,9 +775,9 @@ template <int mmq_y, bool need_check> static __device__ __forceinline__ void loa
         const block_mxfp4 * bxi = (const block_mxfp4 *) x + kbx0 + i*stride + kbxd;
 
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
-        x_df[i*MMQ_MMA_TILE_X_K_Q8_1                 + kbxd] = ggml_cuda_e8m0_to_fp32(bxi->e)*0.5f;
+        x_df[i*MMQ_MMA_TILE_X_K_Q8_1                 + kbxd] = lm_ggml_cuda_e8m0_to_fp32(bxi->e)*0.5f;
 #else
-        x_df[i*(MMQ_TILE_NE_K/QI_MXFP4) + i/QI_MXFP4 + kbxd] = ggml_cuda_e8m0_to_fp32(bxi->e)*0.5f;
+        x_df[i*(MMQ_TILE_NE_K/QI_MXFP4) + i/QI_MXFP4 + kbxd] = lm_ggml_cuda_e8m0_to_fp32(bxi->e)*0.5f;
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     }
 }
@@ -789,14 +789,14 @@ static __device__ __forceinline__ void load_tiles_mxfp4_fp4(const char * __restr
                                                             const int i_max,
                                                             const int stride) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
     int *      x_qs = (int *) x_tile;
     uint32_t * x_sc = (uint32_t *) (x_qs + 2 * MMQ_TILE_NE_K);
 
     const int txi = threadIdx.x;
 
-    constexpr int iter_k = get_iter_k(GGML_TYPE_MXFP4);
+    constexpr int iter_k = get_iter_k(LM_GGML_TYPE_MXFP4);
 
     constexpr int threads_per_row = iter_k / QK_MXFP4;  // each thread processes 1 block
     constexpr int rows_per_warp   = warp_size / threads_per_row;
@@ -830,9 +830,9 @@ template <int mmq_x, int mmq_y>
 static __device__ __forceinline__ void vec_dot_q8_0_q8_1_dp4a(
     const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int k00) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q8_0, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_Q8_0, mmq_y);
     const int   * x_qs = (const int   *) x;
     const float * x_df = (const float *) x_qs + txs.qs;
     const int   * y_qs = (const int   *) y + 4;
@@ -1072,9 +1072,9 @@ template <int mmq_x, int mmq_y>
 static __device__ __forceinline__ void vec_dot_q8_1_q8_1_dp4a(
     const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int k00) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q5_1, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_Q5_1, mmq_y);
     const int   * x_qs = (const int   *) x;
     const half2 * x_dm = (const half2 *) x_qs + txs.qs;
     const int   * y_qs = (const int   *) y + 4;
@@ -1234,7 +1234,7 @@ template <int mmq_x, int mmq_y>
 static __device__ __forceinline__ void vec_dot_q8_0_16_q8_1_dp4a(
     const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int k00) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
     constexpr tile_x_sizes txs = MMQ_DP4A_TXS_Q8_0_16;
     const int   * x_qs = (const int   *) x;
@@ -1444,7 +1444,7 @@ static __device__ __forceinline__ void vec_dot_q8_0_16_q8_1_mma(
         }
     }
 #else
-    GGML_UNUSED_VARS(x, y, sum, k00);
+    LM_GGML_UNUSED_VARS(x, y, sum, k00);
     NO_DEVICE_CODE;
 #endif // AMD_MFMA_AVAILABLE || AMD_WMMA_AVAILABLE
 }
@@ -1457,13 +1457,13 @@ template <int mmq_y, bool need_check> static __device__ __forceinline__ void loa
     int   * x_qs = (int   *)  x_tile;
     half2 * x_dm = (half2 *) (x_qs + 2*MMQ_TILE_NE_K);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q2_K, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_Q2_K, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     half2 * x_dm = (half2 *) (x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
 
     constexpr int threads_per_row = MMQ_ITER_K / (4 * QR2_K);
-    constexpr int nrows = ggml_cuda_get_physical_warp_size() / threads_per_row;
+    constexpr int nrows = lm_ggml_cuda_get_physical_warp_size() / threads_per_row;
     const int kqsx = threadIdx.x % threads_per_row;
 
 #pragma unroll
@@ -1511,9 +1511,9 @@ template <int mmq_x, int mmq_y>
 static __device__ __forceinline__ void vec_dot_q2_K_q8_1_dp4a(
     const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int k00) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q2_K, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_Q2_K, mmq_y);
     const int   * x_qs = (const int   *) x;
     const half2 * x_dm = (const half2 *) x_qs + txs.qs;
     const int   * y_qs = (const int   *) y + 4;
@@ -1830,7 +1830,7 @@ static __device__ __forceinline__ void vec_dot_q2_K_q8_1_mma(
         }
     }
 #else
-    GGML_UNUSED_VARS(x, y, sum, k00);
+    LM_GGML_UNUSED_VARS(x, y, sum, k00);
     NO_DEVICE_CODE;
 #endif // AMD_MFMA_AVAILABLE || AMD_WMMA_AVAILABLE
 }
@@ -1838,13 +1838,13 @@ static __device__ __forceinline__ void vec_dot_q2_K_q8_1_mma(
 template <int mmq_y, bool need_check> static __device__ __forceinline__ void load_tiles_q3_K(
     const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + MMQ_TILE_NE_K*2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q3_K, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_Q3_K, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
     int   * x_sc = (int   *) (x_df + txs.dm);
@@ -1940,9 +1940,9 @@ template <int mmq_x, int mmq_y>
 static __device__ __forceinline__ void vec_dot_q3_K_q8_1_dp4a(
     const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int k00) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q3_K, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_Q3_K, mmq_y);
     const int   * x_qs = (const int   *) x;
     const float * x_df = (const float *) x_qs + txs.qs;
     const int   * x_sc = (const int   *) x_df + txs.dm;
@@ -1984,13 +1984,13 @@ static __device__ __forceinline__ int unpack_scales_q45_K(const int * scales, co
 template <int mmq_y, bool need_check> static __device__ __forceinline__ void load_tiles_q4_K(
     const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     int   * x_qs = (int   *)  x_tile;
     half2 * x_dm = (half2 *) (x_qs + 2*MMQ_TILE_NE_K);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_K, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_Q4_K, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     half2 * x_dm = (half2 *) (x_qs + txs.qs);
     int   * x_sc = (int   *) (x_dm + txs.dm);
@@ -2094,9 +2094,9 @@ template <int mmq_x, int mmq_y>
 static __device__ __forceinline__ void vec_dot_q4_K_q8_1_dp4a(
     const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int k00) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_K, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_Q4_K, mmq_y);
     const int   * x_qs = (const int   *) x;
     const half2 * x_dm = (const half2 *) x_qs + txs.qs;
     const int   * x_sc = (const int   *) x_dm + txs.dm;
@@ -2128,13 +2128,13 @@ static __device__ __forceinline__ void vec_dot_q4_K_q8_1_dp4a(
 template <int mmq_y, bool need_check> static __device__ __forceinline__ void load_tiles_q5_K(
     const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     int   * x_qs = (int   *)  x_tile;
     half2 * x_dm = (half2 *) (x_qs + MMQ_TILE_NE_K*2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q5_K, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_Q5_K, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     half2 * x_dm = (half2 *) (x_qs + txs.qs);
     int   * x_sc = (int   *) (x_dm + txs.dm);
@@ -2251,9 +2251,9 @@ template <int mmq_x, int mmq_y>
 static __device__ __forceinline__ void vec_dot_q5_K_q8_1_dp4a(
     const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int k00) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q5_K, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_Q5_K, mmq_y);
     const int   * x_qs = (const int   *) x;
     const half2 * x_dm = (const half2 *) x_qs + txs.qs;
     const int   * x_sc = (const int   *) x_dm + txs.dm;
@@ -2285,14 +2285,14 @@ static __device__ __forceinline__ void vec_dot_q5_K_q8_1_dp4a(
 template <int mmq_y, bool need_check> static __device__ __forceinline__ void load_tiles_q6_K(
     const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + MMQ_TILE_NE_K*2);
     int   * x_sc = (int   *) (x_df + MMQ_TILE_NE_K/QI6_K);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q6_K, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_Q6_K, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
     int   * x_sc = (int   *) (x_df + txs.dm);
@@ -2372,9 +2372,9 @@ template <int mmq_x, int mmq_y>
 static __device__ __forceinline__ void vec_dot_q6_K_q8_1_dp4a(
     const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int k00) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q6_K, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_Q6_K, mmq_y);
     const int   * x_qs = (const int   *) x;
     const float * x_df = (const float *) x_qs + txs.qs;
     const int   * x_sc = (const int   *) x_df + txs.dm;
@@ -2611,7 +2611,7 @@ static __device__ __forceinline__ void vec_dot_q6_K_q8_1_mma(
         }
     }
 #else
-    GGML_UNUSED_VARS(x, y, sum, k00);
+    LM_GGML_UNUSED_VARS(x, y, sum, k00);
     NO_DEVICE_CODE;
 #endif // AMD_MFMA_AVAILABLE || AMD_WMMA_AVAILABLE
 }
@@ -2619,13 +2619,13 @@ static __device__ __forceinline__ void vec_dot_q6_K_q8_1_mma(
 template <int mmq_y, bool need_check> static __device__ __forceinline__ void load_tiles_iq4_nl(
     const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + MMQ_TILE_NE_K*2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ4_NL, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_IQ4_NL, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
@@ -2684,13 +2684,13 @@ template <int mmq_y, bool need_check> static __device__ __forceinline__ void loa
 template <int mmq_y, bool need_check> static __device__ __forceinline__ void load_tiles_iq2_xxs(
     const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + MMQ_TILE_NE_K*2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ2_XXS, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_IQ2_XXS, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
@@ -2746,7 +2746,7 @@ template <int mmq_y, bool need_check> static __device__ __forceinline__ void loa
 template <int mmq_y, bool need_check> static __device__ __forceinline__ void load_tiles_iq2_xs(
     const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     int   * x_qs = (int   *)  x_tile;
@@ -2806,13 +2806,13 @@ template <int mmq_y, bool need_check> static __device__ __forceinline__ void loa
 template <int mmq_y, bool need_check> static __device__ __forceinline__ void load_tiles_iq2_s(
     const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + MMQ_TILE_NE_K*2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ2_S, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_IQ2_S, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
@@ -2872,13 +2872,13 @@ template <int mmq_y, bool need_check> static __device__ __forceinline__ void loa
 template <int mmq_y, bool need_check> static __device__ __forceinline__ void load_tiles_iq3_xxs(
     const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + MMQ_TILE_NE_K*2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ3_XXS, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_IQ3_XXS, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
@@ -2932,13 +2932,13 @@ template <int mmq_y, bool need_check> static __device__ __forceinline__ void loa
 template <int mmq_y, bool need_check> static __device__ __forceinline__ void load_tiles_iq3_s(
     const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + MMQ_TILE_NE_K*2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ3_S, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_IQ3_S, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
@@ -2999,13 +2999,13 @@ template <int mmq_y, bool need_check> static __device__ __forceinline__ void loa
 template <int mmq_y, bool need_check> static __device__ __forceinline__ void load_tiles_iq1_s(
     const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     int   * x_qs = (int   *)  x_tile;
     half2 * x_ds = (half2 *) (x_qs + MMQ_TILE_NE_K*2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ3_S, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_IQ3_S, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     half2 * x_ds = (half2 *) (x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
@@ -3059,13 +3059,13 @@ template <int mmq_y, bool need_check> static __device__ __forceinline__ void loa
 template <int mmq_y, bool need_check> static __device__ __forceinline__ void load_tiles_iq4_xs(
     const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + MMQ_TILE_NE_K*2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ4_XS, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(LM_GGML_TYPE_IQ4_XS, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
@@ -3126,7 +3126,7 @@ static __device__ __forceinline__ void mmq_write_back_dp4a(
         const float * __restrict__ sum, const int32_t * __restrict__ ids_dst, float * __restrict__ dst,
         const int stride, const int i_max, const int j_max) {
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
 #pragma unroll
     for (int j0 = 0; j0 < mmq_x; j0 += nwarps) {
@@ -3149,7 +3149,7 @@ static __device__ __forceinline__ void mmq_write_back_dp4a(
     }
 }
 
-template<ggml_type type, int mmq_x, int mmq_y, bool need_check>
+template<lm_ggml_type type, int mmq_x, int mmq_y, bool need_check>
 static __device__ __forceinline__ void mmq_write_back_mma(
         const float * __restrict__ sum, const int * __restrict__ ids_dst, float * __restrict__ dst,
         const int stride, const int i_max, const int j_max) {
@@ -3171,7 +3171,7 @@ static __device__ __forceinline__ void mmq_write_back_mma(
 #if defined(TURING_MMA_AVAILABLE) || defined(AMD_MFMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     static_assert(nwarps*tile_C::I == mmq_y, "nwarps*tile_C::I != mmq_y");
 #else
-    GGML_UNUSED(nwarps);
+    LM_GGML_UNUSED(nwarps);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
 
 #pragma unroll
@@ -3200,11 +3200,11 @@ static __device__ __forceinline__ void mmq_write_back_mma(
 
 // -------------------------------------------------------------------------------------------------------------------------------------
 
-template <int mmq_x, int mmq_y, bool need_check, ggml_type type>
+template <int mmq_x, int mmq_y, bool need_check, lm_ggml_type type>
 struct mmq_type_traits;
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q4_0> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, LM_GGML_TYPE_Q4_0> {
     static constexpr int              vdr          = VDR_Q4_0_Q8_1_MMQ;
     static constexpr load_tiles_mmq_t load_tiles   = load_tiles_q4_0<mmq_y, need_check>;
     static constexpr vec_dot_mmq_t    vec_dot_mma  = vec_dot_q8_0_q8_1_mma<mmq_x, mmq_y, MMQ_Q8_1_DS_LAYOUT_DS4>;
@@ -3212,7 +3212,7 @@ struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q4_0> {
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q4_1> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, LM_GGML_TYPE_Q4_1> {
     static constexpr int              vdr          = VDR_Q4_1_Q8_1_MMQ;
     static constexpr load_tiles_mmq_t load_tiles   = load_tiles_q4_1<mmq_y, need_check>;
     static constexpr vec_dot_mmq_t    vec_dot_mma  = vec_dot_q8_1_q8_1_mma<mmq_x, mmq_y>;
@@ -3220,7 +3220,7 @@ struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q4_1> {
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q5_0> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, LM_GGML_TYPE_Q5_0> {
     static constexpr int              vdr          = VDR_Q5_0_Q8_1_MMQ;
     static constexpr load_tiles_mmq_t load_tiles   = load_tiles_q5_0<mmq_y, need_check>;
     static constexpr vec_dot_mmq_t    vec_dot_mma  = vec_dot_q8_0_q8_1_mma<mmq_x, mmq_y, MMQ_Q8_1_DS_LAYOUT_D4>;
@@ -3228,7 +3228,7 @@ struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q5_0> {
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q5_1> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, LM_GGML_TYPE_Q5_1> {
     static constexpr int              vdr          = VDR_Q5_1_Q8_1_MMQ;
     static constexpr load_tiles_mmq_t load_tiles   = load_tiles_q5_1<mmq_y, need_check>;
     static constexpr vec_dot_mmq_t    vec_dot_mma  = vec_dot_q8_1_q8_1_mma<mmq_x, mmq_y>;
@@ -3236,7 +3236,7 @@ struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q5_1> {
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q8_0> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, LM_GGML_TYPE_Q8_0> {
     static constexpr int              vdr          = VDR_Q8_0_Q8_1_MMQ;
     static constexpr load_tiles_mmq_t load_tiles   = load_tiles_q8_0<mmq_y, need_check>;
     static constexpr vec_dot_mmq_t    vec_dot_mma  = vec_dot_q8_0_q8_1_mma<mmq_x, mmq_y, MMQ_Q8_1_DS_LAYOUT_D4>;
@@ -3244,7 +3244,7 @@ struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q8_0> {
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_MXFP4> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, LM_GGML_TYPE_MXFP4> {
     static constexpr int              vdr          = VDR_MXFP4_Q8_1_MMQ;
 #ifdef BLACKWELL_MMA_AVAILABLE
     static constexpr load_tiles_mmq_t load_tiles  = load_tiles_mxfp4_fp4<mmq_y, need_check>;
@@ -3257,7 +3257,7 @@ struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_MXFP4> {
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q2_K> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, LM_GGML_TYPE_Q2_K> {
     static constexpr int              vdr          = VDR_Q2_K_Q8_1_MMQ;
     static constexpr load_tiles_mmq_t load_tiles   = load_tiles_q2_K<mmq_y, need_check>;
     static constexpr vec_dot_mmq_t    vec_dot_mma  = vec_dot_q2_K_q8_1_mma<mmq_x, mmq_y>;
@@ -3265,7 +3265,7 @@ struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q2_K> {
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q3_K> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, LM_GGML_TYPE_Q3_K> {
     static constexpr int              vdr          = VDR_Q3_K_Q8_1_MMQ;
     static constexpr load_tiles_mmq_t load_tiles   = load_tiles_q3_K<mmq_y, need_check>;
     static constexpr vec_dot_mmq_t    vec_dot_mma  = vec_dot_q8_0_16_q8_1_mma<mmq_x, mmq_y>;
@@ -3273,7 +3273,7 @@ struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q3_K> {
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q4_K> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, LM_GGML_TYPE_Q4_K> {
     static constexpr int              vdr          = VDR_Q4_K_Q8_1_MMQ;
     static constexpr load_tiles_mmq_t load_tiles   = load_tiles_q4_K<mmq_y, need_check>;
     static constexpr vec_dot_mmq_t    vec_dot_mma  = vec_dot_q8_1_q8_1_mma<mmq_x, mmq_y>;
@@ -3281,7 +3281,7 @@ struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q4_K> {
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q5_K> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, LM_GGML_TYPE_Q5_K> {
     static constexpr int              vdr          = VDR_Q5_K_Q8_1_MMQ;
     static constexpr load_tiles_mmq_t load_tiles   = load_tiles_q5_K<mmq_y, need_check>;
     static constexpr vec_dot_mmq_t    vec_dot_mma  = vec_dot_q8_1_q8_1_mma<mmq_x, mmq_y>;
@@ -3289,7 +3289,7 @@ struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q5_K> {
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q6_K> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, LM_GGML_TYPE_Q6_K> {
     static constexpr int              vdr          = VDR_Q6_K_Q8_1_MMQ;
     static constexpr load_tiles_mmq_t load_tiles   = load_tiles_q6_K<mmq_y, need_check>;
     static constexpr vec_dot_mmq_t    vec_dot_mma  = vec_dot_q6_K_q8_1_mma<mmq_x, mmq_y>;
@@ -3297,7 +3297,7 @@ struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q6_K> {
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ2_XXS> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, LM_GGML_TYPE_IQ2_XXS> {
     static constexpr int              vdr          = VDR_IQ2_XXS_Q8_1_MMQ;
     static constexpr load_tiles_mmq_t load_tiles   = load_tiles_iq2_xxs<mmq_y, need_check>;
     static constexpr vec_dot_mmq_t    vec_dot_mma  = vec_dot_q8_0_q8_1_mma<mmq_x, mmq_y, MMQ_Q8_1_DS_LAYOUT_D4>;
@@ -3305,7 +3305,7 @@ struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ2_XXS> {
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ2_XS> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, LM_GGML_TYPE_IQ2_XS> {
     static constexpr int              vdr          = VDR_IQ2_XS_Q8_1_MMQ;
     static constexpr load_tiles_mmq_t load_tiles   = load_tiles_iq2_xs<mmq_y, need_check>;
     static constexpr vec_dot_mmq_t    vec_dot_mma  = vec_dot_q8_0_16_q8_1_mma<mmq_x, mmq_y>;
@@ -3313,7 +3313,7 @@ struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ2_XS> {
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ2_S> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, LM_GGML_TYPE_IQ2_S> {
     static constexpr int              vdr          = VDR_IQ2_S_Q8_1_MMQ;
     static constexpr load_tiles_mmq_t load_tiles   = load_tiles_iq2_s<mmq_y, need_check>;
     static constexpr vec_dot_mmq_t    vec_dot_mma  = vec_dot_q8_0_16_q8_1_mma<mmq_x, mmq_y>;
@@ -3321,7 +3321,7 @@ struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ2_S> {
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ3_XXS> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, LM_GGML_TYPE_IQ3_XXS> {
     static constexpr int              vdr          = VDR_IQ3_XXS_Q8_1_MMQ;
     static constexpr load_tiles_mmq_t load_tiles   = load_tiles_iq3_xxs<mmq_y, need_check>;
     static constexpr vec_dot_mmq_t    vec_dot_mma  = vec_dot_q8_0_q8_1_mma<mmq_x, mmq_y, MMQ_Q8_1_DS_LAYOUT_D4>;
@@ -3329,7 +3329,7 @@ struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ3_XXS> {
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ3_S> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, LM_GGML_TYPE_IQ3_S> {
     static constexpr int              vdr          = VDR_IQ3_S_Q8_1_MMQ;
     static constexpr load_tiles_mmq_t load_tiles   = load_tiles_iq3_s<mmq_y, need_check>;
     static constexpr vec_dot_mmq_t    vec_dot_mma  = vec_dot_q8_0_q8_1_mma<mmq_x, mmq_y, MMQ_Q8_1_DS_LAYOUT_D4>;
@@ -3337,7 +3337,7 @@ struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ3_S> {
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ1_S> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, LM_GGML_TYPE_IQ1_S> {
     static constexpr int              vdr          = VDR_IQ1_S_Q8_1_MMQ;
     static constexpr load_tiles_mmq_t load_tiles   = load_tiles_iq1_s<mmq_y, need_check>;
     static constexpr vec_dot_mmq_t    vec_dot_mma  = vec_dot_q8_1_q8_1_mma<mmq_x, mmq_y>;
@@ -3345,7 +3345,7 @@ struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ1_S> {
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ4_NL> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, LM_GGML_TYPE_IQ4_NL> {
     static constexpr int              vdr          = VDR_IQ4_NL_Q8_1_MMQ;
     static constexpr load_tiles_mmq_t load_tiles   = load_tiles_iq4_nl<mmq_y, need_check>;
     static constexpr vec_dot_mmq_t    vec_dot_mma  = vec_dot_q8_0_q8_1_mma<mmq_x, mmq_y, MMQ_Q8_1_DS_LAYOUT_D4>;
@@ -3353,29 +3353,29 @@ struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ4_NL> {
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ4_XS> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, LM_GGML_TYPE_IQ4_XS> {
     static constexpr int              vdr          = VDR_IQ4_XS_Q8_1_MMQ;
     static constexpr load_tiles_mmq_t load_tiles   = load_tiles_iq4_xs<mmq_y, need_check>;
     static constexpr vec_dot_mmq_t    vec_dot_mma  = vec_dot_q8_0_q8_1_mma<mmq_x, mmq_y, MMQ_Q8_1_DS_LAYOUT_D4>;
     static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q8_0_q8_1_dp4a<mmq_x, mmq_y>;
 };
 
-template <ggml_type type, int mmq_x, bool need_check, bool fixup>
+template <lm_ggml_type type, int mmq_x, bool need_check, bool fixup>
 static __device__ __forceinline__ void mul_mat_q_process_tile(
         const char * __restrict__ x, const int offset_x, const int * __restrict__ y,
         const int * __restrict__ ids_dst, float * __restrict__ dst, float * __restrict__ tmp_fixup,
         const int stride_row_x, const int ncols_y, const int stride_col_dst,
         const int tile_x_max_i, const int tile_y_max_j, const int kb0_start, const int kb0_stop) {
 
-    constexpr int              warp_size  = ggml_cuda_get_physical_warp_size();
+    constexpr int              warp_size  = lm_ggml_cuda_get_physical_warp_size();
     constexpr int              nwarps     = mmq_get_nwarps_device();
-    constexpr int              qk         = ggml_cuda_type_traits<type>::qk;
+    constexpr int              qk         = lm_ggml_cuda_type_traits<type>::qk;
     constexpr int              mmq_y      = get_mmq_y_device();
     constexpr load_tiles_mmq_t load_tiles = mmq_type_traits<mmq_x, mmq_y, need_check, type>::load_tiles;
 
     extern __shared__ int data_mul_mat_q[];
     int * tile_y = data_mul_mat_q + mmq_x;
-    int * tile_x = tile_y + GGML_PAD(mmq_x*MMQ_TILE_Y_K, nwarps*warp_size);
+    int * tile_x = tile_y + LM_GGML_PAD(mmq_x*MMQ_TILE_Y_K, nwarps*warp_size);
 
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     constexpr vec_dot_mmq_t    vec_dot    = mmq_type_traits<mmq_x, mmq_y, need_check, type>::vec_dot_mma;
@@ -3387,7 +3387,7 @@ static __device__ __forceinline__ void mul_mat_q_process_tile(
 
 #if defined(BLACKWELL_MMA_AVAILABLE)
     // FP4 tile stores 8 blocks
-    constexpr int ne_block = (type == GGML_TYPE_MXFP4) ? 8 * QK_MXFP4 : 4 * QK8_1;
+    constexpr int ne_block = (type == LM_GGML_TYPE_MXFP4) ? 8 * QK_MXFP4 : 4 * QK8_1;
 #else
     constexpr int ne_block = 4 * QK8_1;
 #endif  // defined(BLACKWELL_MMA_AVAILABLE)
@@ -3444,18 +3444,18 @@ static __device__ __forceinline__ void mul_mat_q_process_tile(
 
 // The mul_mat_q kernel implements "stream-k" work partitioning as described in https://arxiv.org/abs/2301.03598
 
-template <ggml_type type, int mmq_x, bool need_check>
-#if defined(GGML_USE_HIP)
+template <lm_ggml_type type, int mmq_x, bool need_check>
+#if defined(LM_GGML_USE_HIP)
 #if defined(RDNA4) || defined(RDNA3) || defined(RDNA2) || defined(CDNA) || defined(GCN)
-    __launch_bounds__(ggml_cuda_get_physical_warp_size()*mmq_get_nwarps_device(), 2)
+    __launch_bounds__(lm_ggml_cuda_get_physical_warp_size()*mmq_get_nwarps_device(), 2)
 #endif // defined(RDNA4) || defined(RDNA3) || defined(RDNA2) || defined(CDNA) || defined(GCN)
 #else
-#if __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
-    __launch_bounds__(ggml_cuda_get_physical_warp_size()*mmq_get_nwarps_device(), 1)
+#if __CUDA_ARCH__ >= LM_GGML_CUDA_CC_VOLTA
+    __launch_bounds__(lm_ggml_cuda_get_physical_warp_size()*mmq_get_nwarps_device(), 1)
 #else
-    __launch_bounds__(ggml_cuda_get_physical_warp_size()*mmq_get_nwarps_device(), 2)
-#endif // __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
-#endif // defined(GGML_USE_HIP)
+    __launch_bounds__(lm_ggml_cuda_get_physical_warp_size()*mmq_get_nwarps_device(), 2)
+#endif // __CUDA_ARCH__ >= LM_GGML_CUDA_CC_VOLTA
+#endif // defined(LM_GGML_USE_HIP)
 static __global__ void mul_mat_q(
         const char * __restrict__ x, const int * __restrict__ y, const int32_t * __restrict__ ids_dst,
         const int32_t * __restrict__ expert_bounds, float * __restrict__ dst, float * __restrict__ tmp_fixup,
@@ -3471,9 +3471,9 @@ static __global__ void mul_mat_q(
     }
 
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
-    constexpr int qk    = ggml_cuda_type_traits<type>::qk;
+    constexpr int qk    = lm_ggml_cuda_type_traits<type>::qk;
     constexpr int mmq_y = get_mmq_y_device();
 
     const int ntx = (ncols_max + mmq_x - 1) / mmq_x; // Number of tiles x
@@ -3496,7 +3496,7 @@ static __global__ void mul_mat_q(
     __syncthreads();
 
     // On non-CDNA AMD or old CUDA the performance with stream-k was worse, use conventional tiling instead:
-#if (defined(GGML_USE_HIP) && !defined(CDNA)) || __CUDA_ARCH__ < GGML_CUDA_CC_VOLTA
+#if (defined(LM_GGML_USE_HIP) && !defined(CDNA)) || __CUDA_ARCH__ < LM_GGML_CUDA_CC_VOLTA
     {
         const int wt = blockIdx.z / nchannels_y;
         const int zt = blockIdx.z - wt*nchannels_y;
@@ -3550,7 +3550,7 @@ static __global__ void mul_mat_q(
              tile_x_max_i, tile_y_max_j, 0, ncols_x/qk);
         return;
     }
-#endif // (defined(GGML_USE_HIP) && !defined(CDNA3)) || __CUDA_ARCH__ < GGML_CUDA_CC_VOLTA
+#endif // (defined(LM_GGML_USE_HIP) && !defined(CDNA3)) || __CUDA_ARCH__ < LM_GGML_CUDA_CC_VOLTA
 
     constexpr int ITER_K = get_iter_k(type);
 
@@ -3698,21 +3698,21 @@ static __global__ void mul_mat_q(
 }
 
 
-template <ggml_type type, int mmq_x, bool need_check>
+template <lm_ggml_type type, int mmq_x, bool need_check>
 static __global__ void mul_mat_q_stream_k_fixup(
         const int32_t * ids_dst, const int32_t * expert_bounds, float * __restrict__ dst, const float * __restrict__ tmp_last_tile,
         const int ncols_x, const int nrows_x, const int ncols_dst, const int stride_col_dst,
         const int nchannels_y, const int stride_channel_dst, const int nsamples_y, const int stride_sample_dst,
         const int ncols_max) {
     constexpr int     mmq_y           = get_mmq_y_device();
-    constexpr int     qk              = ggml_cuda_type_traits<type>::qk;
+    constexpr int     qk              = lm_ggml_cuda_type_traits<type>::qk;
     constexpr int     ITER_K          = get_iter_k(type);
 
     constexpr int     blocks_per_iter = ITER_K / qk;
     const     int64_t blocks_per_ne00 = ncols_x / qk;
 
     constexpr int nwarps = mmq_get_nwarps_device();
-    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int warp_size = lm_ggml_cuda_get_physical_warp_size();
 
     float sum[mmq_x*mmq_y / (nwarps*warp_size)] = {0.0f};
 
@@ -3853,29 +3853,29 @@ static __global__ void mul_mat_q_stream_k_fixup(
 }
 
 struct mmq_args {
-    const char * x; ggml_type type_x; const int * y; const int32_t * ids_dst; const int32_t * expert_bounds; float * dst;
+    const char * x; lm_ggml_type type_x; const int * y; const int32_t * ids_dst; const int32_t * expert_bounds; float * dst;
     int64_t ncols_x; int64_t nrows_x; int64_t ncols_dst; int64_t stride_row_x; int64_t ncols_y; int64_t nrows_dst;
     int64_t nchannels_x; int64_t nchannels_y; int64_t stride_channel_x; int64_t stride_channel_y; int64_t stride_channel_dst;
     int64_t nsamples_x; int64_t nsamples_y; int64_t stride_sample_x; int64_t stride_sample_y; int64_t stride_sample_dst;
     bool use_stream_k; int64_t ncols_max;
 };
 
-template<ggml_type type>
+template<lm_ggml_type type>
 static size_t mmq_get_nbytes_shared(const int mmq_x, const int mmq_y, const int cc, const int warp_size, const int nwarps) {
     const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(type, mmq_y);
     const int mmq_tile_x_k = mmq_get_mma_tile_x_k(type);
     const size_t nbs_ids = mmq_x*sizeof(int);
     const size_t nbs_x = (turing_mma_available(cc) || amd_mfma_available(cc) || amd_wmma_available(cc)) ? mmq_y*mmq_tile_x_k*sizeof(int) : txs.qs*sizeof(int) + txs.dm*sizeof(half2) + txs.sc*sizeof(int);
     const size_t nbs_y = mmq_x * (sizeof(block_q8_1_mmq));
-    return nbs_ids + nbs_x + GGML_PAD(nbs_y, nwarps*warp_size*sizeof(int));
+    return nbs_ids + nbs_x + LM_GGML_PAD(nbs_y, nwarps*warp_size*sizeof(int));
 }
 
-template <ggml_type type, int mmq_x>
-static void launch_mul_mat_q(ggml_backend_cuda_context & ctx, const mmq_args & args, cudaStream_t stream) {
-    const int id = ggml_cuda_get_device();
-    const int cc = ggml_cuda_info().devices[id].cc;
-    const int nsm = ggml_cuda_info().devices[id].nsm;
-    const int warp_size = ggml_cuda_info().devices[id].warp_size;
+template <lm_ggml_type type, int mmq_x>
+static void launch_mul_mat_q(lm_ggml_backend_cuda_context & ctx, const mmq_args & args, cudaStream_t stream) {
+    const int id = lm_ggml_cuda_get_device();
+    const int cc = lm_ggml_cuda_info().devices[id].cc;
+    const int nsm = lm_ggml_cuda_info().devices[id].nsm;
+    const int warp_size = lm_ggml_cuda_info().devices[id].warp_size;
     const int nwarps = mmq_get_nwarps_host(cc, warp_size);
     const int mmq_y = get_mmq_y_host(cc);
 
@@ -3891,8 +3891,8 @@ static void launch_mul_mat_q(ggml_backend_cuda_context & ctx, const mmq_args & a
     const int ntzw = args.nchannels_y * args.nsamples_y;
     const dim3 block_nums_xy_tiling(nty, ntx, ntzw);
 
-    GGML_ASSERT(args.nchannels_y % args.nchannels_x == 0);
-    GGML_ASSERT(args.nsamples_y  % args.nsamples_x  == 0);
+    LM_GGML_ASSERT(args.nchannels_y % args.nchannels_x == 0);
+    LM_GGML_ASSERT(args.nsamples_y  % args.nsamples_x  == 0);
     const int channel_ratio = args.nchannels_y / args.nchannels_x;
     const int sample_ratio  = args.nsamples_y  / args.nsamples_x;
 
@@ -3920,8 +3920,8 @@ static void launch_mul_mat_q(ggml_backend_cuda_context & ctx, const mmq_args & a
     const dim3 block_nums_stream_k(nsm, 1, 1);
     const bool fixup_needed = ntx*nty*ntzw % nsm != 0;
 
-    ggml_cuda_pool & pool = ctx.pool(id);
-    ggml_cuda_pool_alloc<float> tmp_fixup(pool);
+    lm_ggml_cuda_pool & pool = ctx.pool(id);
+    lm_ggml_cuda_pool_alloc<float> tmp_fixup(pool);
     if (fixup_needed) {
         tmp_fixup.alloc(block_nums_stream_k.x * mmq_x*mmq_y);
     }
@@ -3963,12 +3963,12 @@ static void launch_mul_mat_q(ggml_backend_cuda_context & ctx, const mmq_args & a
     }
 }
 
-template <ggml_type type>
-void mul_mat_q_case(ggml_backend_cuda_context & ctx, const mmq_args & args, cudaStream_t stream) {
-    const int    id     = ggml_cuda_get_device();
-    const int    cc     = ggml_cuda_info().devices[id].cc;
-    const size_t smpbo  = ggml_cuda_info().devices[id].smpbo;
-    const int warp_size = ggml_cuda_info().devices[id].warp_size;
+template <lm_ggml_type type>
+void mul_mat_q_case(lm_ggml_backend_cuda_context & ctx, const mmq_args & args, cudaStream_t stream) {
+    const int    id     = lm_ggml_cuda_get_device();
+    const int    cc     = lm_ggml_cuda_info().devices[id].cc;
+    const size_t smpbo  = lm_ggml_cuda_info().devices[id].smpbo;
+    const int warp_size = lm_ggml_cuda_info().devices[id].warp_size;
     const int nwarps    = mmq_get_nwarps_host(cc, warp_size);
 
     const int mmq_x_max = get_mmq_x_max_host(cc);
@@ -4043,43 +4043,43 @@ void mul_mat_q_case(ggml_backend_cuda_context & ctx, const mmq_args & args, cuda
             break;
         default:
             fprintf(stderr, "mmq_x_best=%d\n", mmq_x_best);
-            GGML_ABORT("fatal error");
+            LM_GGML_ABORT("fatal error");
             break;
     }
 }
 
 #define DECL_MMQ_CASE(type)                                                        \
-    template void mul_mat_q_case<type>(ggml_backend_cuda_context & ctx, const mmq_args & args, cudaStream_t stream) \
+    template void mul_mat_q_case<type>(lm_ggml_backend_cuda_context & ctx, const mmq_args & args, cudaStream_t stream) \
 
-extern DECL_MMQ_CASE(GGML_TYPE_Q4_0);
-extern DECL_MMQ_CASE(GGML_TYPE_Q4_1);
-extern DECL_MMQ_CASE(GGML_TYPE_Q5_0);
-extern DECL_MMQ_CASE(GGML_TYPE_Q5_1);
-extern DECL_MMQ_CASE(GGML_TYPE_Q8_0);
-extern DECL_MMQ_CASE(GGML_TYPE_MXFP4);
-extern DECL_MMQ_CASE(GGML_TYPE_Q2_K);
-extern DECL_MMQ_CASE(GGML_TYPE_Q3_K);
-extern DECL_MMQ_CASE(GGML_TYPE_Q4_K);
-extern DECL_MMQ_CASE(GGML_TYPE_Q5_K);
-extern DECL_MMQ_CASE(GGML_TYPE_Q6_K);
-extern DECL_MMQ_CASE(GGML_TYPE_IQ2_XXS);
-extern DECL_MMQ_CASE(GGML_TYPE_IQ2_XS);
-extern DECL_MMQ_CASE(GGML_TYPE_IQ2_S);
-extern DECL_MMQ_CASE(GGML_TYPE_IQ3_XXS);
-extern DECL_MMQ_CASE(GGML_TYPE_IQ3_S);
-extern DECL_MMQ_CASE(GGML_TYPE_IQ1_S);
-extern DECL_MMQ_CASE(GGML_TYPE_IQ4_NL);
-extern DECL_MMQ_CASE(GGML_TYPE_IQ4_XS);
+extern DECL_MMQ_CASE(LM_GGML_TYPE_Q4_0);
+extern DECL_MMQ_CASE(LM_GGML_TYPE_Q4_1);
+extern DECL_MMQ_CASE(LM_GGML_TYPE_Q5_0);
+extern DECL_MMQ_CASE(LM_GGML_TYPE_Q5_1);
+extern DECL_MMQ_CASE(LM_GGML_TYPE_Q8_0);
+extern DECL_MMQ_CASE(LM_GGML_TYPE_MXFP4);
+extern DECL_MMQ_CASE(LM_GGML_TYPE_Q2_K);
+extern DECL_MMQ_CASE(LM_GGML_TYPE_Q3_K);
+extern DECL_MMQ_CASE(LM_GGML_TYPE_Q4_K);
+extern DECL_MMQ_CASE(LM_GGML_TYPE_Q5_K);
+extern DECL_MMQ_CASE(LM_GGML_TYPE_Q6_K);
+extern DECL_MMQ_CASE(LM_GGML_TYPE_IQ2_XXS);
+extern DECL_MMQ_CASE(LM_GGML_TYPE_IQ2_XS);
+extern DECL_MMQ_CASE(LM_GGML_TYPE_IQ2_S);
+extern DECL_MMQ_CASE(LM_GGML_TYPE_IQ3_XXS);
+extern DECL_MMQ_CASE(LM_GGML_TYPE_IQ3_S);
+extern DECL_MMQ_CASE(LM_GGML_TYPE_IQ1_S);
+extern DECL_MMQ_CASE(LM_GGML_TYPE_IQ4_NL);
+extern DECL_MMQ_CASE(LM_GGML_TYPE_IQ4_XS);
 
 // -------------------------------------------------------------------------------------------------------------------------
 
-void ggml_cuda_mul_mat_q(
-        ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst);
+void lm_ggml_cuda_mul_mat_q(
+        lm_ggml_backend_cuda_context & ctx, const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, const lm_ggml_tensor * ids, lm_ggml_tensor * dst);
 
-void ggml_cuda_op_mul_mat_q(
-    ggml_backend_cuda_context & ctx,
-    const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst, const char * src0_dd_i, const float * src1_ddf_i,
+void lm_ggml_cuda_op_mul_mat_q(
+    lm_ggml_backend_cuda_context & ctx,
+    const lm_ggml_tensor * src0, const lm_ggml_tensor * src1, lm_ggml_tensor * dst, const char * src0_dd_i, const float * src1_ddf_i,
     const char * src1_ddq_i, float * dst_dd_i, const int64_t row_low, const int64_t row_high, const int64_t src1_ncols,
     const int64_t src1_padded_row_size, cudaStream_t stream);
 
-bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11, int64_t n_experts);
+bool lm_ggml_cuda_should_use_mmq(enum lm_ggml_type type, int cc, int64_t ne11, int64_t n_experts);

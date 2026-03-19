@@ -2,6 +2,7 @@
 .gradle/
 build/
 bin/
+libs/
 
 # Large Language Model
 model.gguf

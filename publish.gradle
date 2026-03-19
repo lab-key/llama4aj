@@ -1,62 +1,33 @@
 apply plugin: 'maven-publish'
 
-def getVersion = { -> "1.0.0" }
-def getGroup = { -> "com.llama4aj" }
+def getVersion = { -> \"1.0.0\" }
+def getGroup = { -> \"com.llama4aj\" }
 
 // Ensure subprojects are configured before we try to access their tasks
 evaluationDependsOn(':java')
 evaluationDependsOn(':desktop')
-// Only depend on Android evaluation if we are explicitly publishing it or relevant tasks are present
-if (gradle.startParameter.taskNames.any { it.toLowerCase().contains("android") }) {
-    if (findProject(':android') != null) {
-        evaluationDependsOn(':android')
-    }
-}
 
-// Detection logic for CUDA
-def hasCuda = project(':desktop').hasProperty('ajllama.useCuda') && project(':desktop').getProperty('ajllama.useCuda') == "true"
-def hasAndroid = findProject(':android') != null
+// Use property to determine backend
+def backend = project.hasProperty(\"ajllama.backend\") ? project.getProperty(\"ajllama.backend\") : \"cpu\"
 
 publishing {
     publications {
         // 1. Core Java API Publication
         core(MavenPublication) {
             groupId getGroup()
-            artifactId "core"
+            artifactId \"core\"
             version getVersion()
             artifact project(':java').tasks.named('jar')
         }
 
-        // 2. Android Multi-Arch Publication (Conditional)
-        if (hasAndroid) {
-            android(MavenPublication) {
-                groupId getGroup()
-                artifactId "android"
-                version getVersion()
-                afterEvaluate {
-                    def bundleTask = project(':android').tasks.findByName('bundleReleaseAar') ?: 
-                                    project(':android').tasks.findByName('bundleRelease')
-                    if (bundleTask) {
-                        artifact bundleTask
-                    }
-                }
-                pom.withXml {
-                    def dependenciesNode = asNode().appendNode('dependencies')
-                    def dep = dependenciesNode.appendNode('dependency')
-                    dep.appendNode('groupId', getGroup())
-                    dep.appendNode('artifactId', 'core')
-                    dep.appendNode('version', getVersion())
-                    dep.appendNode('scope', 'compile')
-                }
-            }
-        }
-
-        // 3. Desktop CPU Publication
-        desktop(MavenPublication) {
+        // 2. Desktop Backend-Specific Publication
+        // Example: desktop-cuda, desktop-cpu
+        \"desktop-${backend}\"(MavenPublication) {
             groupId getGroup()
-            artifactId "desktop"
+            artifactId \"desktop-${backend}\"
             version getVersion()
             artifact project(':desktop').tasks.named('jar')
+            
             pom.withXml {
                 def dependenciesNode = asNode().appendNode('dependencies')
                 def dep = dependenciesNode.appendNode('dependency')
@@ -66,33 +37,12 @@ publishing {
                 dep.appendNode('scope', 'compile')
             }
         }
-
-        // 4. Desktop CUDA Publication (Conditioned on hasCuda)
-        if (hasCuda) {
-            desktopCuda(MavenPublication) {
-                groupId getGroup()
-                artifactId "desktop-cuda"
-                version getVersion()
-                artifact project(':desktop').tasks.named('jar')
-                pom.withXml {
-                    def dependenciesNode = asNode().appendNode('dependencies')
-                    def dep = dependenciesNode.appendNode('dependency')
-                    dep.appendNode('groupId', getGroup())
-                    dep.appendNode('artifactId', 'core')
-                    dep.appendNode('version', getVersion())
-                    dep.appendNode('scope', 'compile')
-                }
-            }
-        }
     }
 
     repositories {
         maven {
-            name = "Local"
-            url = URI.create("file://${System.getProperty('user.home')}/.m2/repository")
+            name = \"Local\"
+            url = URI.create(\"file://${System.getProperty('user.home')}/.m2/repository\")
         }
     }
 }
-
-// REMOVED: Global dependsOn that forced a build of EVERYTHING.
-// Now, 'publishToMavenLocal' will only build what is needed for the active publications.

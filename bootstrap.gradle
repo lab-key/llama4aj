@@ -10,6 +10,12 @@ task bootstrap {
     description = "Bootstraps the project by syncing submodules and copying/patching source files."
 
     doLast {
+        // 0. Force clean submodule state
+        logger.lifecycle("Force-cleaning submodules...")
+        exec { commandLine "git", "submodule", "foreach", "--recursive", "git", "reset", "--hard" }
+        exec { commandLine "git", "submodule", "foreach", "--recursive", "git", "clean", "-fd" }
+        exec { commandLine "git", "submodule", "update", "--init", "--recursive" }
+
         // 1. Initialize/Update Submodules
         logger.lifecycle("Initializing/Updating submodules...")
         
@@ -27,14 +33,20 @@ task bootstrap {
         def isSubmodulePopulated = new File(llamaRnDir, ".git").exists()
         if (!isSubmodulePopulated) {
              logger.lifecycle("Submodule llama.rn not populated or index inconsistent, fixing...")
-             
-             // 1. Force remove from index and config to ensure clean slate
+
+             // 1. Remove broken directory from disk if it exists but isn't a valid git repo
+             if (llamaRnDir.exists()) {
+                 logger.lifecycle("Removing broken third_party/llama.rn directory...")
+                 llamaRnDir.deleteDir()
+             }
+
+             // 2. Force remove from index and config to ensure clean slate
              exec {
                  commandLine "git", "rm", "-rf", "--cached", "third_party/llama.rn"
                  ignoreExitValue = true
              }
-             
-             // 2. Add it fresh
+
+             // 3. Add it fresh
              exec {
                  commandLine "git", "submodule", "add", "--force", "https://github.com/mybigday/llama.rn.git", "third_party/llama.rn"
              }
@@ -77,7 +89,7 @@ task bootstrap {
         logger.lifecycle("Cleaning cpp directory...")
         if (cppDir.exists()) {
             cppDir.listFiles().each { f ->
-                if (f.name != "ajllamaJNI.cpp" && f.name != "CMakeLists.txt") { // Keep CMakeLists.txt if it exists for now, though we might overwrite/manage it
+                if (f.name != "ajllamaJNI.cpp" && f.name != "CMakeLists.txt") {
                     if (f.isDirectory()) {
                         f.deleteDir()
                     } else {
@@ -92,13 +104,12 @@ task bootstrap {
         // 3. Copy files from llama.cpp
         logger.lifecycle("Copying files from llama.cpp...")
         
-        // Helper to copy and log
         def copyFile = { File src, File dest ->
             if (src.exists()) {
                 dest.parentFile.mkdirs()
                 java.nio.file.Files.copy(src.toPath(), dest.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
             } else {
-                logger.warn("Source file not found: ${src}")
+                logger.warn("Source file not found: " + src)
             }
         }
 
@@ -109,7 +120,7 @@ task bootstrap {
                     into dest
                 }
             } else {
-                logger.warn("Source directory not found: ${src}")
+                logger.warn("Source directory not found: " + src)
             }
         }
 
@@ -130,13 +141,6 @@ task bootstrap {
         copyDir(file("${llamaCppDir}/ggml/src/ggml-metal"), file("${cppDir}/ggml-metal"))
         file("${cppDir}/ggml-metal/CMakeLists.txt").delete()
 
-        // Metal header embedding (simplified logic, matches script mostly)
-        // TODO: Implement the awk/sed logic for metal header embedding if needed for macOS.
-        // For now, we'll verify if this is strictly necessary for our current goals or if we can rely on file copy.
-        // The script embeds headers into .metal file for runtime compilation.
-        // We will skip complex sed/awk for now and assume standard copy works for build, 
-        // but might need to revisit for full iOS/macOS support parity.
-
         copyDir(file("${llamaCppDir}/ggml/src/ggml-blas"), file("${cppDir}/ggml-blas"))
         file("${cppDir}/ggml-blas/CMakeLists.txt").delete()
 
@@ -144,7 +148,6 @@ task bootstrap {
         file("${cppDir}/ggml-opencl/CMakeLists.txt").delete()
 
         copyDir(file("${llamaCppDir}/ggml/src/ggml-hexagon"), file("${cppDir}/ggml-hexagon"))
-        // Keep CMakeLists.txt for hexagon as noted in script
 
         // GGML CPU
         copyFile(file("${llamaCppDir}/ggml/src/ggml-cpu/ggml-cpu.c"), file("${cppDir}/ggml-cpu/ggml-cpu.c"))
@@ -276,6 +279,7 @@ task bootstrap {
         copyFile(file("${llamaCppDir}/common/peg-parser.cpp"), file("${cppDir}/common/peg-parser.cpp"))
         copyFile(file("${llamaCppDir}/common/unicode.h"), file("${cppDir}/common/unicode.h"))
         copyFile(file("${llamaCppDir}/common/unicode.cpp"), file("${cppDir}/common/unicode.cpp"))
+        copyFile(file("${llamaCppDir}/common/chat-peg-parser.cpp"), file("${cppDir}/chat-peg-parser.cpp"))
 
         // Multimodal
         file("${cppDir}/tools/mtmd").mkdirs()
@@ -305,6 +309,7 @@ task bootstrap {
         // --- NEW BACKENDS ---
         logger.lifecycle("Copying extra backends (CUDA, HIP, Vulkan, RPC)...")
         copyDir(file("${llamaCppDir}/ggml/src/ggml-cuda"), file("${cppDir}/ggml-cuda"))
+        copyFile(file("${llamaCppDir}/ggml/include/ggml-cuda.h"), file("${cppDir}/ggml-cuda/ggml-cuda.h"))
         copyDir(file("${llamaCppDir}/ggml/src/ggml-hip"), file("${cppDir}/ggml-hip"))
         copyDir(file("${llamaCppDir}/ggml/src/ggml-vulkan"), file("${cppDir}/ggml-vulkan"))
         copyDir(file("${llamaCppDir}/ggml/src/ggml-rpc"), file("${cppDir}/ggml-rpc"))
@@ -319,18 +324,15 @@ task bootstrap {
 
         // 4. Apply Patches
         logger.lifecycle("Applying patches...")
-        // Clean up any old rejections first
         delete fileTree(dir: cppDir, include: "**/*.rej")
         
         fileTree(dir: "${scriptsDir}/patches", include: "*.patch").each { File patchFile ->
             logger.lifecycle("Applying patch: ${patchFile.name}")
-            // Apply with -p0 because headers in patches match our relative structure (e.g. common/chat.cpp)
             exec {
                 workingDir cppDir
                 commandLine "patch", "-p0", "-i", patchFile.absolutePath
                 ignoreExitValue = true 
             }
-            // Cleanup orig files
             delete fileTree(dir: cppDir, include: "**/*.orig")
         }
 
@@ -338,8 +340,8 @@ task bootstrap {
         logger.lifecycle("Applying symbol prefixes...")
         
         def filesToProcess = fileTree(dir: cppDir).matching {
-            include "**/*.cpp", "**/*.h", "**/*.c", "**/*.cu", "**/*.m", "**/*.metal"
-            exclude "rn-*" // Skip rn- files as per script
+            include "**/*.cpp", "**/*.h", "**/*.c", "**/*.cu", "**/*.cuh", "**/*.m", "**/*.metal"
+            exclude "rn-*"
         }
 
         filesToProcess.each { File f ->
@@ -356,13 +358,11 @@ task bootstrap {
             content = content.replaceAll("<nlohmann/json.hpp>", '"nlohmann/json.hpp"')
             content = content.replaceAll("<nlohmann/json_fwd.hpp>", '"nlohmann/json_fwd.hpp"')
             
-            // Jinja includes update
             if (f.path.contains("common/jinja")) {
                  content = content.replaceAll('#include "string.h"', '#include "jinja-string.h"')
                  content = content.replaceAll('#include "jinja/string.h"', '#include "jinja/jinja-string.h"')
             }
 
-            // Quants prefixing (specific files)
             if (f.name == "ggml-quants.h" || f.name == "ggml-quants.c" || f.name == "ggml.c") {
                 content = content.replaceAll("iq2xs_init_impl", "lm_iq2xs_init_impl")
                 content = content.replaceAll("iq2xs_free_impl", "lm_iq2xs_free_impl")
@@ -374,40 +374,13 @@ task bootstrap {
                 f.text = content
             }
         }
-        
-        
-        // 6. Generate Version Info
-        logger.lifecycle("Generating version info...")
-        def buildNumber = "0"
-        def buildCommit = "unknown"
-        
-        try {
-            def stdout = new ByteArrayOutputStream()
-            exec {
-                commandLine "git", "rev-list", "--count", "HEAD"
-                workingDir llamaCppDir
-                standardOutput = stdout
-            }
-            buildNumber = stdout.toString().trim()
-            
-            stdout.reset()
-            exec {
-                commandLine "git", "rev-parse", "--short=7", "HEAD"
-                workingDir llamaCppDir
-                standardOutput = stdout
-            }
-            buildCommit = stdout.toString().trim()
-        } catch (Exception e) {
-            logger.warn("Failed to get git version info: ${e.message}")
+	
+        // --- Final Cleanup ---
+        logger.lifecycle("Cleaning up third_party workspace...")
+        exec {
+            commandLine "git", "submodule", "deinit", "-f", "third_party/llama.rn"
         }
-        
-        def versionFile = file("src/version.ts") // Assuming root/src exists, otherwise maybe just log it or put in cpp
-        // The original script puts it in $SRC_DIR/version.ts where SRC_DIR=$ROOT_DIR/src
-        // We will match that.
-        file("src").mkdirs()
-        versionFile.text = """export const BUILD_NUMBER = '${buildNumber}'
-export const BUILD_COMMIT = '${buildCommit}'
-"""
+ 
         logger.lifecycle("Bootstrap complete!")
     }
 }

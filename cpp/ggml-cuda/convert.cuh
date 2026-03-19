@@ -10,11 +10,11 @@ typedef to_t_cuda_t<float> to_fp32_cuda_t;
 typedef to_t_cuda_t<half> to_fp16_cuda_t;
 typedef to_t_cuda_t<nv_bfloat16> to_bf16_cuda_t;
 
-to_fp16_cuda_t ggml_get_to_fp16_cuda(ggml_type type);
+to_fp16_cuda_t lm_ggml_get_to_fp16_cuda(lm_ggml_type type);
 
-to_bf16_cuda_t ggml_get_to_bf16_cuda(ggml_type type);
+to_bf16_cuda_t lm_ggml_get_to_bf16_cuda(lm_ggml_type type);
 
-to_fp32_cuda_t ggml_get_to_fp32_cuda(ggml_type type);
+to_fp32_cuda_t lm_ggml_get_to_fp32_cuda(lm_ggml_type type);
 
 // TODO more general support for non-contiguous inputs
 
@@ -27,12 +27,12 @@ typedef to_t_nc_cuda_t<float> to_fp32_nc_cuda_t;
 typedef to_t_nc_cuda_t<half> to_fp16_nc_cuda_t;
 typedef to_t_nc_cuda_t<nv_bfloat16> to_bf16_nc_cuda_t;
 
-to_fp32_nc_cuda_t ggml_get_to_fp32_nc_cuda(ggml_type type);
-to_fp16_nc_cuda_t ggml_get_to_fp16_nc_cuda(ggml_type type);
-to_bf16_nc_cuda_t ggml_get_to_bf16_nc_cuda(ggml_type type);
+to_fp32_nc_cuda_t lm_ggml_get_to_fp32_nc_cuda(lm_ggml_type type);
+to_fp16_nc_cuda_t lm_ggml_get_to_fp16_nc_cuda(lm_ggml_type type);
+to_bf16_nc_cuda_t lm_ggml_get_to_bf16_nc_cuda(lm_ggml_type type);
 
 template<typename dst_t, typename src_t>
- __host__ __device__ inline dst_t ggml_cuda_cast(src_t x) {
+ __host__ __device__ inline dst_t lm_ggml_cuda_cast(src_t x) {
     if constexpr (std::is_same_v<dst_t, src_t>) {
         return x;
     } else if constexpr(std::is_same_v<dst_t, nv_bfloat16>) {
@@ -43,11 +43,11 @@ template<typename dst_t, typename src_t>
         return __float22half2_rn(x);
     } else if constexpr(std::is_same_v<src_t, float2> && std::is_same_v<dst_t, nv_bfloat162>) {
         // bypass compile error on cuda 12.0.1
-#ifdef GGML_USE_HIP
+#ifdef LM_GGML_USE_HIP
         return __float22bfloat162_rn(x);
 #else
         return {x.x, x.y};
-#endif // GGML_USE_HIP
+#endif // LM_GGML_USE_HIP
     } else if constexpr(std::is_same_v<dst_t, int32_t>) {
         return int32_t(x);
     } else {

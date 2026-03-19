@@ -21,18 +21,18 @@
 // On Volta each warp is doing 4 8x8 mma operations in parallel.
 // The basic memory layout for a 32x8 output tile is to stack 4 input tiles in I direction and to mirror the B tile.
 // However, the i indices in this file are by default permuted to simplify the index calculations.
-// #define GGML_CUDA_MMA_NO_VOLTA_PERM
+// #define LM_GGML_CUDA_MMA_NO_VOLTA_PERM
 
 #if CUDART_VERSION >= 11080
 
-static __device__ __forceinline__ int ggml_cuda_movmatrix(const int x) {
+static __device__ __forceinline__ int lm_ggml_cuda_movmatrix(const int x) {
     int ret = 0;
 
 #ifdef TURING_MMA_AVAILABLE
     asm("movmatrix.sync.aligned.m8n8.trans.b16 %0, %1;"
         : "=r"(ret) : "r"(x));
 #else
-    GGML_UNUSED(x);
+    LM_GGML_UNUSED(x);
     NO_DEVICE_CODE;
 #endif // defined(TURING_MMA_AVAILABLE)
     return ret;
@@ -40,7 +40,7 @@ static __device__ __forceinline__ int ggml_cuda_movmatrix(const int x) {
 
 #else
 
-static __device__ __forceinline__ int ggml_cuda_movmatrix(const int x) {
+static __device__ __forceinline__ int lm_ggml_cuda_movmatrix(const int x) {
     // Imagine transposing row-major matrix to column-major matrix.
     const int src_i_low  = 2 * (threadIdx.x % 4);
     const int src_i_high = src_i_low + 1;
@@ -60,13 +60,13 @@ static __device__ __forceinline__ int ggml_cuda_movmatrix(const int x) {
 
 #endif // CUDART_VERSION >= 11080
 
-static __device__ __forceinline__ half2 ggml_cuda_movmatrix(const half2 x) {
+static __device__ __forceinline__ half2 lm_ggml_cuda_movmatrix(const half2 x) {
     half2 ret;
-    *((int *) &ret) = ggml_cuda_movmatrix(*((const int *) &x));
+    *((int *) &ret) = lm_ggml_cuda_movmatrix(*((const int *) &x));
     return ret;
 }
 
-namespace ggml_cuda_mma {
+namespace lm_ggml_cuda_mma {
 
     // Some architectures like Volta or CDNA3 perform multiple matrix multiplications per warp in parallel,
     //     effectively the warp is being split into subgroups of threads that each perform a single mma instruction.
@@ -92,11 +92,11 @@ namespace ggml_cuda_mma {
     }
 
     static constexpr __device__ data_layout get_input_data_layout() {
-#if defined(RDNA3) || __CUDA_ARCH__ == GGML_CUDA_CC_VOLTA
+#if defined(RDNA3) || __CUDA_ARCH__ == LM_GGML_CUDA_CC_VOLTA
         return DATA_LAYOUT_I_MAJOR_MIRRORED;
 #else
         return DATA_LAYOUT_I_MAJOR;
-#endif // defined(RDNA3) || __CUDA_ARCH__ == GGML_CUDA_CC_VOLTA
+#endif // defined(RDNA3) || __CUDA_ARCH__ == LM_GGML_CUDA_CC_VOLTA
     }
 
     template <int I_, int J_, typename T, data_layout ds_=DATA_LAYOUT_I_MAJOR>
@@ -154,7 +154,7 @@ namespace ggml_cuda_mma {
                 return -1;
             }
         }
-#elif __CUDA_ARCH__ == GGML_CUDA_CC_VOLTA
+#elif __CUDA_ARCH__ == LM_GGML_CUDA_CC_VOLTA
         static constexpr int ne = I * J / 32;
         T x[ne] = {0};
 
@@ -165,11 +165,11 @@ namespace ggml_cuda_mma {
 
         static __device__ __forceinline__ int get_i(const int l) {
             if constexpr (I == 32 && J == 8) {
-#ifdef GGML_CUDA_MMA_NO_VOLTA_PERM
+#ifdef LM_GGML_CUDA_MMA_NO_VOLTA_PERM
                 return (((threadIdx.x % 16) / 4) * 8) + ((threadIdx.x / 16) * 4) + (l & 2) + (threadIdx.x % 2);
 #else
                 return (l & 2) + (threadIdx.x & ~2);
-#endif // GGML_CUDA_MMA_NO_VOLTA_PERM
+#endif // LM_GGML_CUDA_MMA_NO_VOLTA_PERM
             } else {
                 NO_DEVICE_CODE;
                 return -1;
@@ -274,7 +274,7 @@ namespace ggml_cuda_mma {
                 return -1;
             }
         }
-#endif // defined(GGML_USE_HIP)
+#endif // defined(LM_GGML_USE_HIP)
     };
 
     template <int I_, int J_>
@@ -283,7 +283,7 @@ namespace ggml_cuda_mma {
         static constexpr int         J  = J_;
         static constexpr data_layout dl = DATA_LAYOUT_I_MAJOR;
 
-#if __CUDA_ARCH__ == GGML_CUDA_CC_VOLTA
+#if __CUDA_ARCH__ == LM_GGML_CUDA_CC_VOLTA
         static constexpr int ne = I * J / WARP_SIZE;
         half2 x[ne] = {{0.0f, 0.0f}};
 
@@ -294,11 +294,11 @@ namespace ggml_cuda_mma {
 
         static __device__ __forceinline__ int get_i(const int l) {
             if constexpr (I == 32 && J == 4) {
-#ifdef GGML_CUDA_MMA_NO_VOLTA_PERM
+#ifdef LM_GGML_CUDA_MMA_NO_VOLTA_PERM
                 return (((threadIdx.x % 16) / 4) * 8) + ((threadIdx.x / 16) * 4) + (threadIdx.x % 4);
 #else
                 return threadIdx.x;
-#endif // GGML_CUDA_MMA_NO_VOLTA_PERM
+#endif // LM_GGML_CUDA_MMA_NO_VOLTA_PERM
             } else {
                 NO_DEVICE_CODE;
                 return -1;
@@ -381,7 +381,7 @@ namespace ggml_cuda_mma {
                 return -1;
             }
         }
-#endif // __CUDA_ARCH__ == GGML_CUDA_CC_VOLTA
+#endif // __CUDA_ARCH__ == LM_GGML_CUDA_CC_VOLTA
     };
 
     template <int I_, int J_>
@@ -622,8 +622,8 @@ namespace ggml_cuda_mma {
 
     static __device__ __forceinline__ tile<8, 8, half2> get_transposed(const tile<16, 4, half2> & t) {
         tile<8, 8, half2> ret;
-        ret.x[0] = ggml_cuda_movmatrix(t.x[0]);
-        ret.x[1] = ggml_cuda_movmatrix(t.x[1]);
+        ret.x[0] = lm_ggml_cuda_movmatrix(t.x[0]);
+        ret.x[1] = lm_ggml_cuda_movmatrix(t.x[1]);
 
         return ret;
     }
@@ -668,7 +668,7 @@ namespace ggml_cuda_mma {
         const int idx = row % 8;
         reinterpret_cast<half*>(t.x)[idx] = left_right == up_down ? 1.0f : 0.0f;
 #else
-        GGML_UNUSED_VARS(t);
+        LM_GGML_UNUSED_VARS(t);
         NO_DEVICE_CODE;
 #endif // defined(RDNA4)
     }
@@ -682,22 +682,22 @@ namespace ggml_cuda_mma {
                 t.x[l] = xs0[t.get_i(l)*stride + t.get_j(l)];
             }
         } else {
-            ggml_cuda_memcpy_1<sizeof(t.x)>(t.x, xs0 + t.get_i(0) * stride + t.get_j(0));
+            lm_ggml_cuda_memcpy_1<sizeof(t.x)>(t.x, xs0 + t.get_i(0) * stride + t.get_j(0));
         }
 #elif defined(AMD_WMMA_AVAILABLE)
         // All wmma layout has contiguous data when i-major.
         if constexpr (is_i_major(dl)) {
-            // the data must be aligned to 16 bytes when bigger than ggml_cuda_get_max_cpy_bytes()
-            constexpr int aligned_copy_bytes = ggml_cuda_get_max_cpy_bytes();
+            // the data must be aligned to 16 bytes when bigger than lm_ggml_cuda_get_max_cpy_bytes()
+            constexpr int aligned_copy_bytes = lm_ggml_cuda_get_max_cpy_bytes();
             if constexpr (sizeof(t.x) > aligned_copy_bytes) {
                 static_assert(sizeof(t.x) % aligned_copy_bytes == 0, "bad type size");
                 constexpr int aligned_copy_count = sizeof(t.x)/aligned_copy_bytes;
 #pragma unroll
                 for (int i = 0; i < aligned_copy_count; ++i) {
-                    ggml_cuda_memcpy_1<aligned_copy_bytes>(t.x + t.ne/aligned_copy_count*i, xs0 + t.get_i(0) * stride + t.get_j(t.ne/aligned_copy_count*i));
+                    lm_ggml_cuda_memcpy_1<aligned_copy_bytes>(t.x + t.ne/aligned_copy_count*i, xs0 + t.get_i(0) * stride + t.get_j(t.ne/aligned_copy_count*i));
                 }
             } else {
-                ggml_cuda_memcpy_1<sizeof(t.x)>(t.x, xs0 + t.get_i(0) * stride + t.get_j(0));
+                lm_ggml_cuda_memcpy_1<sizeof(t.x)>(t.x, xs0 + t.get_i(0) * stride + t.get_j(0));
             }
         } else {
 #pragma unroll
@@ -737,12 +737,12 @@ namespace ggml_cuda_mma {
             : "=r"(xi[0]), "=r"(xi[1])
             : "l"(xs));
 #else
-#if __CUDA_ARCH__ == GGML_CUDA_CC_VOLTA
-        GGML_UNUSED_VARS(t, xs0, stride);
+#if __CUDA_ARCH__ == LM_GGML_CUDA_CC_VOLTA
+        LM_GGML_UNUSED_VARS(t, xs0, stride);
         NO_DEVICE_CODE;
 #else
         load_generic(t, xs0, stride);
-#endif // __CUDA_ARCH__ == GGML_CUDA_CC_VOLTA
+#endif // __CUDA_ARCH__ == LM_GGML_CUDA_CC_VOLTA
 #endif // TURING_MMA_AVAILABLE
     }
 
@@ -756,42 +756,42 @@ namespace ggml_cuda_mma {
             : "=r"(xi[0]), "=r"(xi[1]), "=r"(xi[2]), "=r"(xi[3])
             : "l"(xs));
 #else
-#if __CUDA_ARCH__ == GGML_CUDA_CC_VOLTA
+#if __CUDA_ARCH__ == LM_GGML_CUDA_CC_VOLTA
 #if 1
         // TODO: more generic handling
         static_assert(sizeof(T) == 4, "bad type size");
-        ggml_cuda_memcpy_1<4*sizeof(T)>(t.x + 0, xs0 + t.get_i(0)*stride + 0);
-        ggml_cuda_memcpy_1<4*sizeof(T)>(t.x + 4, xs0 + t.get_i(4)*stride + 4);
+        lm_ggml_cuda_memcpy_1<4*sizeof(T)>(t.x + 0, xs0 + t.get_i(0)*stride + 0);
+        lm_ggml_cuda_memcpy_1<4*sizeof(T)>(t.x + 4, xs0 + t.get_i(4)*stride + 4);
 #else
         load_generic(t, xs0, stride);
 #endif // 1
 #else
         load_generic(t, xs0, stride);
-#endif // __CUDA_ARCH__ == GGML_CUDA_CC_VOLTA
+#endif // __CUDA_ARCH__ == LM_GGML_CUDA_CC_VOLTA
 #endif // TURING_MMA_AVAILABLE
     }
 
     static __device__ __forceinline__ void load_ldmatrix(
             tile<8, 4, half2, DATA_LAYOUT_I_MAJOR_MIRRORED> & t, const half2 * __restrict__ xs0, const int stride) {
-        ggml_cuda_memcpy_1<4*sizeof(half2)>(t.x, xs0 + t.get_i(0)*stride);
+        lm_ggml_cuda_memcpy_1<4*sizeof(half2)>(t.x, xs0 + t.get_i(0)*stride);
     }
 
     static __device__ __forceinline__ void load_ldmatrix(
             tile<8, 4, half2, DATA_LAYOUT_J_MAJOR_MIRRORED> & t, const half2 * __restrict__ xs0, const int stride) {
 #pragma unroll
         for (int l0 = 0; l0 < t.ne; l0 += 2) {
-            ggml_cuda_memcpy_1<2*sizeof(half2)>(t.x + l0, xs0 + t.get_i(l0)*stride + t.get_j(l0));
+            lm_ggml_cuda_memcpy_1<2*sizeof(half2)>(t.x + l0, xs0 + t.get_i(l0)*stride + t.get_j(l0));
         }
     }
 
     static __device__ __forceinline__ void load_ldmatrix(
             tile<32, 4, half2> & t, const half2 * __restrict__ xs0, const int stride) {
-#if __CUDA_ARCH__ == GGML_CUDA_CC_VOLTA
-        ggml_cuda_memcpy_1<4*sizeof(half2)>(t.x, xs0 + t.get_i(0)*stride);
+#if __CUDA_ARCH__ == LM_GGML_CUDA_CC_VOLTA
+        lm_ggml_cuda_memcpy_1<4*sizeof(half2)>(t.x, xs0 + t.get_i(0)*stride);
 #else
-        GGML_UNUSED_VARS(t, xs0, stride);
+        LM_GGML_UNUSED_VARS(t, xs0, stride);
         NO_DEVICE_CODE;
-#endif // __CUDA_ARCH__ == GGML_CUDA_CC_VOLTA
+#endif // __CUDA_ARCH__ == LM_GGML_CUDA_CC_VOLTA
     }
 
     template <typename T>
@@ -804,7 +804,7 @@ namespace ggml_cuda_mma {
             : "=r"(xi[0]), "=r"(xi[2]), "=r"(xi[1]), "=r"(xi[3])
             : "l"(xs));
 #else
-        GGML_UNUSED_VARS(t, xs0, stride);
+        LM_GGML_UNUSED_VARS(t, xs0, stride);
         NO_DEVICE_CODE;
 #endif // TURING_MMA_AVAILABLE
     }
@@ -812,7 +812,7 @@ namespace ggml_cuda_mma {
     static __device__ __forceinline__ void mma(
             tile<16, 8, int> & D, const tile<16, 4, int> & A, const tile<8, 4, int> & B) {
 #ifdef TURING_MMA_AVAILABLE
-#if __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE
+#if __CUDA_ARCH__ >= LM_GGML_CUDA_CC_AMPERE
         asm("mma.sync.aligned.m16n8k16.row.col.s32.s8.s8.s32 {%0, %1, %2, %3}, {%4, %5}, {%6}, {%0, %1, %2, %3};"
             : "+r"(D.x[0]), "+r"(D.x[1]), "+r"(D.x[2]), "+r"(D.x[3])
             : "r"(A.x[0]), "r"(A.x[1]), "r"(B.x[0]));
@@ -824,9 +824,9 @@ namespace ggml_cuda_mma {
         asm("mma.sync.aligned.m8n8k16.row.col.s32.s8.s8.s32 {%0, %1}, {%2}, {%3}, {%0, %1};"
             : "+r"(D.x[2]), "+r"(D.x[3])
             : "r"(A.x[1]), "r"(B.x[0]));
-#endif // __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE
+#endif // __CUDA_ARCH__ >= LM_GGML_CUDA_CC_AMPERE
 #else
-        GGML_UNUSED_VARS(D, A, B);
+        LM_GGML_UNUSED_VARS(D, A, B);
         NO_DEVICE_CODE;
 #endif // TURING_MMA_AVAILABLE
     }
@@ -834,7 +834,7 @@ namespace ggml_cuda_mma {
     static __device__ __forceinline__ void mma(
             tile<16, 8, int> & D, const tile<16, 8, int> & A, const tile<8, 8, int> & B) {
 #ifdef TURING_MMA_AVAILABLE
-#if __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE
+#if __CUDA_ARCH__ >= LM_GGML_CUDA_CC_AMPERE
         asm("mma.sync.aligned.m16n8k32.row.col.s32.s8.s8.s32 {%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%0, %1, %2, %3};"
             : "+r"(D.x[0]), "+r"(D.x[1]), "+r"(D.x[2]), "+r"(D.x[3])
             : "r"(A.x[0]), "r"(A.x[1]), "r"(A.x[2]), "r"(A.x[3]), "r"(B.x[0]), "r"(B.x[1]));
@@ -852,9 +852,9 @@ namespace ggml_cuda_mma {
         asm("mma.sync.aligned.m8n8k16.row.col.s32.s8.s8.s32 {%0, %1}, {%2}, {%3}, {%0, %1};"
             : "+r"(D.x[2]), "+r"(D.x[3])
             : "r"(A.x[3]), "r"(B.x[1]));
-#endif // __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE
+#endif // __CUDA_ARCH__ >= LM_GGML_CUDA_CC_AMPERE
 #else
-        GGML_UNUSED_VARS(D, A, B);
+        LM_GGML_UNUSED_VARS(D, A, B);
         NO_DEVICE_CODE;
 #endif // TURING_MMA_AVAILABLE
     }
@@ -865,7 +865,7 @@ namespace ggml_cuda_mma {
         const int * Axi = (const int *) A.x;
         const int * Bxi = (const int *) B.x;
         int       * Dxi = (int       *) D.x;
-#if __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE
+#if __CUDA_ARCH__ >= LM_GGML_CUDA_CC_AMPERE
         asm("mma.sync.aligned.m16n8k16.row.col.f16.f16.f16.f16 {%0, %1}, {%2, %3, %4, %5}, {%6, %7}, {%0, %1};"
             : "+r"(Dxi[0]), "+r"(Dxi[1])
             : "r"(Axi[0]), "r"(Axi[1]), "r"(Axi[2]), "r"(Axi[3]), "r"(Bxi[0]), "r"(Bxi[1]));
@@ -877,9 +877,9 @@ namespace ggml_cuda_mma {
         asm("mma.sync.aligned.m16n8k8.row.col.f16.f16.f16.f16 {%0, %1}, {%2, %3}, {%4}, {%0, %1};"
             : "+r"(Dxi[0]), "+r"(Dxi[1])
             : "r"(Axi[2]), "r"(Axi[3]), "r"(Bxi[1]));
-#endif // __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE
+#endif // __CUDA_ARCH__ >= LM_GGML_CUDA_CC_AMPERE
 #else
-        GGML_UNUSED_VARS(D, A, B);
+        LM_GGML_UNUSED_VARS(D, A, B);
         NO_DEVICE_CODE;
 #endif // TURING_MMA_AVAILABLE
     }
@@ -890,7 +890,7 @@ namespace ggml_cuda_mma {
         const int * Axi = (const int *) A.x;
         const int * Bxi = (const int *) B.x;
         int       * Dxi = (int       *) D.x;
-#if __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE
+#if __CUDA_ARCH__ >= LM_GGML_CUDA_CC_AMPERE
         asm("mma.sync.aligned.m16n8k16.row.col.f16.f16.f16.f16 {%0, %1}, {%2, %3, %4, %5}, {%6, %7}, {%0, %1};"
             : "+r"(Dxi[0]), "+r"(Dxi[1])
             : "r"(Axi[0]), "r"(Axi[1]), "r"(Axi[2]), "r"(Axi[3]), "r"(Bxi[0]), "r"(Bxi[2]));
@@ -911,7 +911,7 @@ namespace ggml_cuda_mma {
         asm("mma.sync.aligned.m16n8k8.row.col.f16.f16.f16.f16 {%0, %1}, {%2, %3}, {%4}, {%0, %1};"
             : "+r"(Dxi[2]), "+r"(Dxi[3])
             : "r"(Axi[2]), "r"(Axi[3]), "r"(Bxi[3]));
-#endif // __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE
+#endif // __CUDA_ARCH__ >= LM_GGML_CUDA_CC_AMPERE
 #elif defined(AMD_WMMA_AVAILABLE)
 #if defined(RDNA4)
         using halfx8_t = __attribute__((ext_vector_type(8))) _Float16;
@@ -920,11 +920,11 @@ namespace ggml_cuda_mma {
         const halfx8_t& b_frag = reinterpret_cast<const halfx8_t&>(B.x[0]);
         acc_frag = __builtin_amdgcn_wmma_f16_16x16x16_f16_w32_gfx12(a_frag, b_frag, acc_frag);
 #else
-        GGML_UNUSED_VARS(D, A, B);
+        LM_GGML_UNUSED_VARS(D, A, B);
         NO_DEVICE_CODE;
 #endif // defined(RDNA4)
 #else
-        GGML_UNUSED_VARS(D, A, B);
+        LM_GGML_UNUSED_VARS(D, A, B);
         NO_DEVICE_CODE;
 #endif // TURING_MMA_AVAILABLE
     }
@@ -940,7 +940,7 @@ namespace ggml_cuda_mma {
             : "+r"(Dxi[0]), "+r"(Dxi[1]), "+r"(Dxi[2]), "+r"(Dxi[3])
             : "r"(Axi[0]), "r"(Axi[1]), "r"(Axi[2]), "r"(Axi[3]), "r"(Bxi[0]), "r"(Bxi[1]));
 #else
-        GGML_UNUSED_VARS(D, A, B);
+        LM_GGML_UNUSED_VARS(D, A, B);
         NO_DEVICE_CODE;
 #endif // AMPERE_MMA_AVAILABLE
     }
@@ -962,7 +962,7 @@ namespace ggml_cuda_mma {
             : "+f"(Dxi[0]), "+f"(Dxi[1]), "+f"(Dxi[2]), "+f"(Dxi[3])
             : "r"(Axi[0]), "r"(Axi[1]), "r"(Axi[2]), "r"(Axi[3]), "r"(Bxi[0]), "r"(Bxi[1]), "r"(a_scale), "r"(b_scale));
 #else
-        GGML_UNUSED_VARS(D, A, B, a_scale, b_scale);
+        LM_GGML_UNUSED_VARS(D, A, B, a_scale, b_scale);
 #endif  // BLACKWELL_MMA_AVAILABLE
     }
 
@@ -972,7 +972,7 @@ namespace ggml_cuda_mma {
         const int * Axi = (const int *) A.x;
         const int * Bxi = (const int *) B.x;
         int       * Dxi = (int       *) D.x;
-#if __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE
+#if __CUDA_ARCH__ >= LM_GGML_CUDA_CC_AMPERE
         asm("mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 {%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%0, %1, %2, %3};"
             : "+r"(Dxi[0]), "+r"(Dxi[1]), "+r"(Dxi[2]), "+r"(Dxi[3])
             : "r"(Axi[0]), "r"(Axi[1]), "r"(Axi[2]), "r"(Axi[3]), "r"(Bxi[0]), "r"(Bxi[1]));
@@ -984,9 +984,9 @@ namespace ggml_cuda_mma {
         asm("mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32 {%0, %1, %2, %3}, {%4, %5}, {%6}, {%0, %1, %2, %3};"
             : "+r"(Dxi[0]), "+r"(Dxi[1]), "+r"(Dxi[2]), "+r"(Dxi[3])
             : "r"(Axi[2]), "r"(Axi[3]), "r"(Bxi[1]));
-#endif // __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE
+#endif // __CUDA_ARCH__ >= LM_GGML_CUDA_CC_AMPERE
 #else
-        GGML_UNUSED_VARS(D, A, B);
+        LM_GGML_UNUSED_VARS(D, A, B);
         NO_DEVICE_CODE;
 #endif // TURING_MMA_AVAILABLE
     }
@@ -1001,7 +1001,7 @@ namespace ggml_cuda_mma {
             : "+r"(Dxi[0]), "+r"(Dxi[1]), "+r"(Dxi[2]), "+r"(Dxi[3])
             : "r"(Axi[0]), "r"(Axi[1]), "r"(Axi[2]), "r"(Axi[3]), "r"(Bxi[0]), "r"(Bxi[1]));
 #else
-        GGML_UNUSED_VARS(D, A, B);
+        LM_GGML_UNUSED_VARS(D, A, B);
         NO_DEVICE_CODE;
 #endif // AMPERE_MMA_AVAILABLE
     }
@@ -1013,7 +1013,7 @@ namespace ggml_cuda_mma {
         const int * Axi = (const int *) A.x;
         const int * Bxi = (const int *) B.x;
         int       * Dxi = (int       *) D.x;
-#if __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE
+#if __CUDA_ARCH__ >= LM_GGML_CUDA_CC_AMPERE
         asm("mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 {%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%0, %1, %2, %3};"
             : "+r"(Dxi[0]), "+r"(Dxi[1]), "+r"(Dxi[2]), "+r"(Dxi[3])
             : "r"(Axi[0]), "r"(Axi[1]), "r"(Axi[2]), "r"(Axi[3]), "r"(Bxi[0]), "r"(Bxi[2]));
@@ -1034,7 +1034,7 @@ namespace ggml_cuda_mma {
         asm("mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32 {%0, %1, %2, %3}, {%4, %5}, {%6}, {%0, %1, %2, %3};"
             : "+r"(Dxi[4]), "+r"(Dxi[5]), "+r"(Dxi[6]), "+r"(Dxi[7])
             : "r"(Axi[2]), "r"(Axi[3]), "r"(Bxi[3]));
-#endif // __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE
+#endif // __CUDA_ARCH__ >= LM_GGML_CUDA_CC_AMPERE
 #elif defined(AMD_WMMA_AVAILABLE)
 #if defined(RDNA4)
         using halfx8_t = __attribute__((ext_vector_type(8))) _Float16;
@@ -1051,11 +1051,11 @@ namespace ggml_cuda_mma {
         const halfx16_t& b_frag = reinterpret_cast<const halfx16_t&>(B.x[0]);
         acc_frag = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(a_frag, b_frag, acc_frag);
 #else
-        GGML_UNUSED_VARS(D, A, B);
+        LM_GGML_UNUSED_VARS(D, A, B);
         NO_DEVICE_CODE;
 #endif // RDNA4
 #else
-        GGML_UNUSED_VARS(D, A, B);
+        LM_GGML_UNUSED_VARS(D, A, B);
         NO_DEVICE_CODE;
 #endif // TURING_MMA_AVAILABLE
     }
@@ -1079,11 +1079,11 @@ namespace ggml_cuda_mma {
         const bf16x16_t& b_frag = reinterpret_cast<const bf16x16_t&>(B.x[0]);
         acc_frag = __builtin_amdgcn_wmma_f32_16x16x16_bf16_w32(a_frag, b_frag, acc_frag);
 #else
-        GGML_UNUSED_VARS(D, A, B);
+        LM_GGML_UNUSED_VARS(D, A, B);
         NO_DEVICE_CODE;
 #endif // RDNA4
 #else
-        GGML_UNUSED_VARS(D, A, B);
+        LM_GGML_UNUSED_VARS(D, A, B);
         NO_DEVICE_CODE;
 #endif // AMPERE_MMA_AVAILABLE
     }
@@ -1163,7 +1163,7 @@ namespace ggml_cuda_mma {
 #endif // RDNA4
 
 #else
-        GGML_UNUSED_VARS(D, A, B);
+        LM_GGML_UNUSED_VARS(D, A, B);
         NO_DEVICE_CODE;
 #endif // AMD_MFMA_AVAILABLE
     }
@@ -1190,7 +1190,7 @@ namespace ggml_cuda_mma {
 #endif // defined(CDNA3)
 
 #else
-        GGML_UNUSED_VARS(D, A, B);
+        LM_GGML_UNUSED_VARS(D, A, B);
         NO_DEVICE_CODE;
 #endif // AMD_MFMA_AVAILABLE
     }
@@ -1206,7 +1206,7 @@ namespace ggml_cuda_mma {
 
     static __device__ __forceinline__ void mma(
             tile<32, 8, float> & D, const tile<32, 4, half2> & A, const tile<8, 4, half2, DATA_LAYOUT_I_MAJOR_MIRRORED> & B) {
-#if __CUDA_ARCH__ == GGML_CUDA_CC_VOLTA
+#if __CUDA_ARCH__ == LM_GGML_CUDA_CC_VOLTA
         const int * Axi = (const int *) A.x;
         const int * Bxi = (const int *) B.x;
         int       * Dxi = (int       *) D.x;
@@ -1219,14 +1219,14 @@ namespace ggml_cuda_mma {
             : "+r"(Dxi[0]), "+r"(Dxi[1]), "+r"(Dxi[2]), "+r"(Dxi[3]), "+r"(Dxi[4]), "+r"(Dxi[5]), "+r"(Dxi[6]), "+r"(Dxi[7])
             : "r"(Axi[2]), "r"(Axi[3]), "r"(Bxi[2]), "r"(Bxi[3]));
 #else
-        GGML_UNUSED_VARS(D, A, B);
+        LM_GGML_UNUSED_VARS(D, A, B);
         NO_DEVICE_CODE;
-#endif // __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
+#endif // __CUDA_ARCH__ >= LM_GGML_CUDA_CC_VOLTA
     }
 
     static __device__ __forceinline__ void mma(
             tile<32, 4, half2> & D, const tile<32, 4, half2> & A, const tile<8, 4, half2, DATA_LAYOUT_J_MAJOR_MIRRORED> & B) {
-#if __CUDA_ARCH__ == GGML_CUDA_CC_VOLTA
+#if __CUDA_ARCH__ == LM_GGML_CUDA_CC_VOLTA
         const int * Axi = (const int *) A.x;
         const int * Bxi = (const int *) B.x;
         int       * Dxi = (int       *) D.x;
@@ -1239,9 +1239,9 @@ namespace ggml_cuda_mma {
             : "+r"(Dxi[0]), "+r"(Dxi[1]), "+r"(Dxi[2]), "+r"(Dxi[3])
             : "r"(Axi[2]), "r"(Axi[3]), "r"(Bxi[2]), "r"(Bxi[3]));
 #else
-        GGML_UNUSED_VARS(D, A, B);
+        LM_GGML_UNUSED_VARS(D, A, B);
         NO_DEVICE_CODE;
-#endif // __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
+#endif // __CUDA_ARCH__ >= LM_GGML_CUDA_CC_VOLTA
     }
 
     template <data_layout dl_d, data_layout dl_ab>
@@ -1278,9 +1278,9 @@ namespace ggml_cuda_mma {
         );
 #endif // RDNA4
 #else
-        GGML_UNUSED(D);
-        GGML_UNUSED(A);
-        GGML_UNUSED(B);
+        LM_GGML_UNUSED(D);
+        LM_GGML_UNUSED(A);
+        LM_GGML_UNUSED(B);
         NO_DEVICE_CODE;
 #endif // AMD_WMMA_AVAILABLE
     }
