@@ -8,9 +8,7 @@ A Direct Android & Java Build For The [mybigday](https://github.com/mybigday) Se
 
 ### Java 11 Required
 
-##### Supports
-
-## Platform Support
+##### OS 
 
 | Platform | Status |
 |----------|--------|
@@ -20,7 +18,7 @@ A Direct Android & Java Build For The [mybigday](https://github.com/mybigday) Se
 | macOS    | ⚠️ Untested |
 | BSD      | ⚠️ Untested |
 
-## Backend Support
+##### Backend
 
 Since this project is built on llama.cpp bindings, a wide range of compute backends are supported:
 
